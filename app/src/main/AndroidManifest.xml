@@ -5,19 +5,20 @@
     <!-- ============================================================
          PACKAGE VISIBILITY (Android 11 / API 30+)
 
-         Without this block, PackageManager.getPackageInfo() throws
-         NameNotFoundException for these packages even when they ARE
-         installed, and every row would incorrectly show "Install".
+         The catalogue is server-driven: the list is whatever the server
+         publishes, so the store cannot know at build time which packages
+         it will need to inspect. A static <queries> list would mean any
+         app added to the catalogue after this APK shipped could not be
+         seen on the device, and would incorrectly show "Install" even
+         when already installed - defeating the point of a remote catalogue.
 
-         We deliberately do NOT request QUERY_ALL_PACKAGES: the
-         catalogue is a fixed, known set, so an explicit list is both
-         sufficient and far less policy-sensitive.
+         QUERY_ALL_PACKAGES is therefore required rather than optional.
+         For a privileged system app on a Lucid head unit this is granted
+         at build time and carries none of the Play Store review burden it
+         would for a consumer app.
          ============================================================ -->
-    <queries>
-        <package android:name="com.lucid.auto.media" />
-        <package android:name="com.lucid.auto.radio" />
-        <package android:name="com.spotify.music" />
-    </queries>
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
 
     <!-- ========== Always required ========== -->
     <uses-permission android:name="android.permission.INTERNET" />

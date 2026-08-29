@@ -11,7 +11,7 @@ Android only. Kotlin + Jetpack Compose.
 | Package | `com.lucid.auto.appstore` |
 | minSdk / targetSdk / compileSdk | 29 / 35 / 35 |
 | UI | Jetpack Compose (Material 3) |
-| Tests | 85 unit + Compose tests, no emulator needed |
+| Tests | 93 unit + Compose tests, no emulator needed |
 | Docs | [Requirements](docs/REQUIREMENTS.md) · [Architecture](docs/ARCHITECTURE.md) · [Troubleshooting](#troubleshooting) |
 
 ---
@@ -39,15 +39,9 @@ Three details make this correct rather than merely working:
 3. **Package visibility (API 30+).** Since Android 11 the platform filters which packages an app
    can see. `getPackageInfo` throws `NameNotFoundException` for an undeclared package *even when
    that app is installed*. The symptom is every row showing `Install` on a device where all three
-   apps are present. The fix is an explicit `<queries>` block:
-
-   ```xml
-   <queries>
-       <package android:name="com.lucid.auto.media" />
-       <package android:name="com.lucid.auto.radio" />
-       <package android:name="com.spotify.music" />
-   </queries>
-   ```
+   apps are present. The fix is `QUERY_ALL_PACKAGES`. A static `<queries>` list cannot work here:
+   the catalogue is server-driven, so the packages to inspect are unknown at build time, and any
+   app added to the catalogue after the APK shipped would be invisible.
 
 The state each row shows then falls out of one pure comparison
 ([`AppStateResolver`](app/src/main/kotlin/com/lucid/auto/appstore/domain/AppStateResolver.kt)):
@@ -67,7 +61,7 @@ The state each row shows then falls out of one pure comparison
 | Permission | Why |
 |---|---|
 | `INTERNET`, `ACCESS_NETWORK_STATE` | fetch the catalogue and APKs |
-| `<queries>` package list | read local versions on API 30+ |
+| `QUERY_ALL_PACKAGES` | read local versions of arbitrary catalogue packages on API 30+ |
 | `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_DATA_SYNC` | keep long downloads alive |
 | `POST_NOTIFICATIONS` | progress/result notifications (API 33+, runtime-requested) |
 | `RECEIVE_BOOT_COMPLETED` | re-arm the auto-update worker after a reboot |
@@ -86,8 +80,9 @@ The state each row shows then falls out of one pure comparison
 | `INSTALL_PACKAGES` | `signature\|privileged` | fully silent install of new apps |
 | `DELETE_PACKAGES` | `signature\|privileged` | silent uninstall (reserved) |
 
-`QUERY_ALL_PACKAGES` is deliberately **not** requested — the catalogue is a fixed set of three
-packages, so the static `<queries>` list is sufficient and avoids a policy-sensitive permission.
+`QUERY_ALL_PACKAGES` is **required**, not optional, because the catalogue is server-driven. For a
+privileged system app on a head unit it is granted at build time and carries none of the Play
+Store review burden it would for a consumer app.
 
 #### Does it have to be a system app?
 
@@ -146,18 +141,70 @@ version line is either pure version text or an exact match for one of the three 
 
 ---
 
-## Managed apps
+## How the list is populated
 
-The catalogue is intentionally small and fixed:
+**The catalogue drives the list.** The store fetches the catalogue, then asks the device for the
+installed version of each package the catalogue names:
 
-| Display name | Package |
+```
+device: 228 installed apps        catalogue: 10 apps
+                    ↓                        ↓
+                    └────── 10 rows ─────────┘
+```
+
+- Apps in the catalogue → **listed**, with their state resolved against the device.
+- Apps installed on the device but **not** in the catalogue → **never listed**. They are not the
+  store's concern.
+- The store's own package → **never listed**, even when the catalogue includes it (that entry is
+  its [self-update](#self-update) channel).
+
+Nothing hard-codes the app set. The current catalogue ships with Lucid Media, Lucid Radio and
+Spotify, but apps can be added or removed server-side with no new store APK — which is why
+`QUERY_ALL_PACKAGES` is required rather than a static `<queries>` list.
+
+Offline behaviour follows from this: with a cached catalogue the last-known list stays on screen;
+on a cold start with no catalogue ever fetched, the list is empty with an error banner. The cache
+is in-memory, so it does not survive a process restart — see *Known gaps*.
+
+### Reading local versions
+
+Version reads are **targeted, not enumerated**: the store calls `getPackageInfo(pkg)` once per
+catalogue entry. It never calls `getInstalledPackages()`, so a 10-app catalogue costs 10 lookups
+whether the device has 20 apps or 200.
+
+Those reads are deliberately **not cached**. `PackageManager` is already an in-memory cache in
+`system_server`, so a lookup is sub-millisecond — and a local cache would go stale on every
+install or uninstall the store did not perform itself (a user uninstalling from Settings, adb, an
+MDM push), none of which it is notified about. A stale row saying `Installed` for a deleted app
+is a much worse bug than the microseconds it would save.
+
+**Icons are cached**, because they are the genuinely expensive part — decoding a drawable out of
+an APK — and their invalidation key cannot go stale: `(package, versionCode)`. An icon cannot
+change without the APK changing, and the APK cannot change without the versionCode changing.
+
+The row list is also built off the main thread (`flowOn`) and conflated, because progress ticks
+once per percent of a download — about 100 rebuilds per install.
+
+### Self-update
+
+The store lists itself in its own catalogue and updates itself through the same
+download → verify → install path as any other app, so shipping a new store does not need an OTA.
+
+Committing an update to your own package **kills your own process**, which shapes the rules:
+
+| Rule | Why |
 |---|---|
-| Lucid Media | `com.lucid.auto.media` |
-| Lucid Radio | `com.lucid.auto.radio` |
-| Spotify | `com.spotify.music` |
+| Background worker only, never a tap | Killing the app under the user's finger is hostile |
+| Always last in a sweep | A self-kill must not abandon other apps' updates |
+| `sha256` mandatory | Every other app can be repaired by the store; a corrupt store cannot repair itself |
+| Downgrades refused explicitly | Clearer than the platform's conflict error |
+| Never depends on observing its own success | On the happy path the process dies before the result arrives |
 
-Defined once in [`ManagedApps`](app/src/main/kotlin/com/lucid/auto/appstore/domain/ManagedApps.kt);
-must be mirrored in the manifest's `<queries>` block.
+Failure is safe: `PackageInstaller` is atomic, so either the new store lands or the old one keeps
+running. In the privileged build the updated APK installs to `/data` as an *updated system app*
+and keeps its `priv-app` grants **provided it is signed with the same platform key** — worth
+verifying on the real head-unit image, since a signing mismatch silently costs it
+`INSTALL_PACKAGES`.
 
 ---
 
@@ -343,10 +390,9 @@ the first time.
 
 ### Every row says `Install` even though the apps are installed
 
-Package visibility filtering (API 30+). The package is missing from the `<queries>` block in
-`AndroidManifest.xml`, so `getPackageInfo` throws `NameNotFoundException` for an app that is
-really there. Add a `<package android:name="..."/>` entry and rebuild. Verify what the device
-actually has:
+Package visibility filtering (API 30+). Confirm `QUERY_ALL_PACKAGES` is present in
+`AndroidManifest.xml` and actually granted — without it `getPackageInfo` throws
+`NameNotFoundException` for an app that is really there. Verify what the device actually has:
 
 ```bash
 adb shell dumpsys package com.lucid.auto.media | grep -m1 versionName
@@ -390,7 +436,7 @@ Check in order:
 
 ## Tests
 
-`./gradlew :app:testDebugUnitTest` — 85 tests, no emulator. Compose UI tests run under
+`./gradlew :app:testDebugUnitTest` — 93 tests, no emulator. Compose UI tests run under
 Robolectric.
 
 | Suite | Covers |
@@ -433,6 +479,21 @@ tools/                  publish-samples.sh · apk-version.sh
 system/                 privapp permission allowlist for the privileged build
 docs/                   REQUIREMENTS.md · ARCHITECTURE.md
 ```
+
+---
+
+## Known gaps
+
+- **The catalogue cache is in-memory only.** A cold start with no network shows an empty list.
+  In a car — parking garages, tunnels, no data plan — that is a realistic state. Persisting the
+  last-good catalogue to disk is ~20 lines and would make the list survive a restart offline.
+  Not built, because it was not asked for.
+- **Self-update requires auto-update to be enabled**, since it runs only from the periodic
+  worker. If the owner turns auto-update off, the store stops updating itself. Consistent with
+  "no background installs unless opted in", but worth a deliberate decision.
+- **No staged rollout or version floor.** A bad store build reaches every vehicle that polls.
+  A `minStoreVersionCode` field in the catalogue would let the server refuse to serve app updates
+  to a store too old to handle them.
 
 ---
 

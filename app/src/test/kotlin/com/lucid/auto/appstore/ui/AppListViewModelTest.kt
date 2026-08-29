@@ -63,9 +63,12 @@ class AppListViewModelTest {
         appRepository = AppRepository(
             inspector,
             catalogRepository,
-            ioDispatcher = UnconfinedTestDispatcher(),
+            "com.lucid.auto.appstore",
+            UnconfinedTestDispatcher(),
         )
-        coordinator = UpdateCoordinator(appRepository, FakeApkDownloader(temp.root), installer)
+        coordinator = UpdateCoordinator(
+            appRepository, FakeApkDownloader(temp.root), installer, "com.lucid.auto.appstore",
+        )
     }
 
     @After
@@ -98,8 +101,10 @@ class AppListViewModelTest {
     }
 
     @Test
-    fun `a catalog failure produces an error banner but keeps the list usable`() =
+    fun `a catalog failure on a cold start shows the banner and an empty list`() =
         runTest(dispatcher) {
+            // The device has the app, but the list is catalogue-driven and nothing has been
+            // fetched yet, so there is nothing to show.
             inspector.put("com.lucid.auto.media", "1.1.0", 10100)
             api.error = java.io.IOException("connection refused")
 
@@ -107,8 +112,24 @@ class AppListViewModelTest {
             advanceUntilIdle()
 
             assertThat(vm.uiState.value.errorMessage).contains("Could not reach the app catalogue")
-            assertThat(vm.uiState.value.items.map { it.packageName })
-                .containsExactly("com.lucid.auto.media")
+            assertThat(vm.uiState.value.items).isEmpty()
+        }
+
+    @Test
+    fun `a catalog failure after a good fetch keeps the previous list on screen`() =
+        runTest(dispatcher) {
+            inspector.put("com.lucid.auto.media", "1.1.0", 10100)
+            val vm = viewModel()
+            advanceUntilIdle()
+            assertThat(vm.uiState.value.items).hasSize(3)
+
+            api.error = java.io.IOException("connection refused")
+            vm.refresh()
+            advanceUntilIdle()
+
+            // The cached catalogue still drives the list, so the screen stays usable.
+            assertThat(vm.uiState.value.errorMessage).contains("Could not reach the app catalogue")
+            assertThat(vm.uiState.value.items).hasSize(3)
         }
 
     @Test

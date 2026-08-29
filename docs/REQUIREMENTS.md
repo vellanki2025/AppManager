@@ -36,8 +36,9 @@ It replaces manual APK sideloading and gives the vehicle a controlled, auditable
 | 2 | Lucid Radio | `com.lucid.auto.radio` |
 | 3 | Spotify      | `com.spotify.music` |
 
-The catalogue is intentionally small. Package names are declared statically in
-`AndroidManifest.xml` under `<queries>` so the app does **not** need `QUERY_ALL_PACKAGES`.
+These three are the **initial contents of the catalogue**, not a build-time list. The catalogue
+is server-driven: the store lists whatever the server publishes, so apps can be added or removed
+without shipping a new store APK. Nothing in the app hard-codes this set.
 
 ### 2.3 Out of scope (future)
 
@@ -74,9 +75,11 @@ ordering, because it is an arbitrary developer-chosen string.
 **FR-1.3** A `PackageManager.NameNotFoundException` SHALL be interpreted as *not installed*, not
 as an error.
 
-**FR-1.4** Because Android 11 (API 30) filters package visibility, the manifest SHALL declare each
-managed package inside a `<queries>` element. Without this, `getPackageInfo` throws
-`NameNotFoundException` for installed apps and every app would falsely show `Install`.
+**FR-1.4** Because Android 11 (API 30) filters package visibility, the app SHALL hold
+`QUERY_ALL_PACKAGES`. A static `<queries>` list is **not** sufficient: the catalogue is
+server-driven, so the set of packages to inspect is unknown at build time. Any app added to the
+catalogue after the APK shipped would be invisible and would falsely show `Install` even when
+installed — and tapping it would fail at install time with a conflict.
 
 **FR-1.5** The icon shown for an installed app SHALL come from
 `PackageManager.getApplicationIcon(packageName)`. For a not-installed app it SHALL come from the
@@ -114,17 +117,24 @@ managed package inside a `<queries>` element. Without this, `getPackageInfo` thr
 SHALL show a non-blocking error banner with a Retry action. Managed apps that are installed
 appear as `Installed`; apps with no local and no remote data are omitted.
 
-### FR-3 — State derivation
+### FR-3 — List population and state derivation
 
-**FR-3.1** For each managed package the state SHALL be derived as:
+**FR-3.0 — The catalogue drives the list.** The rows SHALL be exactly the entries of the fetched
+catalogue. For each catalogue entry the device is consulted for that package's installed version.
+Apps installed on the device but **absent from the catalogue SHALL NOT be listed** — they are not
+the store's concern. A device with 50 installed apps and a catalogue of 10 SHALL show 10 rows.
+
+**FR-3.0.1** The store's own package SHALL be excluded from the list. It may appear in the
+catalogue (that is its self-update channel, FR-6.8) but SHALL never be rendered as a row.
+
+**FR-3.1** For each listed package the state SHALL be derived as:
 
 | Local | Remote | `remote.versionCode > local.versionCode` | State |
 |---|---|---|---|
 | absent | present | — | `INSTALL` |
 | present | present | true | `UPDATE` |
 | present | present | false | `INSTALLED` |
-| present | absent | — | `INSTALLED` |
-| absent | absent | — | omitted from the list |
+| present | absent | — | not listed (FR-3.0) |
 
 **FR-3.2** State derivation SHALL be a pure function of (local info, remote info) with no
 Android dependencies, so it is unit-testable on the JVM.
@@ -229,6 +239,19 @@ install a new app the user has not asked for.
 **FR-6.7** Auto-update SHALL never apply to `INSTALL` or `INSTALLED` rows, and shall be a no-op
 when the catalogue is unreachable.
 
+**FR-6.8 — Self-update.** The store MAY appear in its own catalogue in order to update itself.
+
+- **FR-6.8.1** Self-update SHALL run **only** from the periodic background worker, never from a
+  tap or the on-launch pass. Committing an update to one's own package kills the process; doing
+  that under the user's finger is unacceptable.
+- **FR-6.8.2** Self-update SHALL run **last**, after every other pending update, so that being
+  killed cannot abandon in-progress work.
+- **FR-6.8.3** A `sha256` checksum SHALL be mandatory for the store's own APK. Every other app can
+  be repaired by the store; a corrupt store cannot repair itself.
+- **FR-6.8.4** A self-update to an equal or lower `versionCode` SHALL be refused explicitly.
+- **FR-6.8.5** The implementation SHALL NOT depend on observing its own success — on the happy
+  path the process dies before the result arrives.
+
 ### FR-7 — Configurable server endpoint
 
 **FR-7.1** The catalogue base URL SHALL be a build-config value with a debug default of the
@@ -248,7 +271,7 @@ security config; release builds SHALL NOT.
 |---|---|
 | `android.permission.INTERNET` | Fetch catalogue JSON and APKs. |
 | `android.permission.ACCESS_NETWORK_STATE` | Detect connectivity before refresh/auto-update. |
-| `<queries>` package list | Read installed versions of the 3 managed apps on API 30+ (FR-1.4). |
+| `android.permission.QUERY_ALL_PACKAGES` | Read installed versions of arbitrary catalogue packages on API 30+ (FR-1.4). Required, not optional, because the catalogue is server-driven. |
 | `android.permission.FOREGROUND_SERVICE` + `…_DATA_SYNC` | Keep long downloads alive. |
 | `android.permission.POST_NOTIFICATIONS` | Progress/result notifications on API 33+. Runtime-requested. |
 | `android.permission.RECEIVE_BOOT_COMPLETED` | Re-arm the auto-update worker (FR-6.5). |
@@ -273,8 +296,10 @@ The allowlist file `system/privapp-permissions-com.lucid.auto.appstore.xml` must
 `/system/etc/permissions/` or `/product/etc/permissions/`. Without it, Android **refuses to boot
 the app** (privileged permission not in allowlist).
 
-`QUERY_ALL_PACKAGES` is deliberately **not** requested — the static `<queries>` list is
-sufficient for a fixed catalogue and avoids a policy-sensitive permission.
+`QUERY_ALL_PACKAGES` is required because the catalogue is server-driven (FR-1.4). A static
+`<queries>` list would cap the catalogue at whatever was known when the APK was built. For a
+privileged system app on a Lucid head unit this permission is granted at build time and carries
+none of the Play Store review burden it would for a consumer app.
 
 ---
 
@@ -312,6 +337,11 @@ sufficient for a fixed catalogue and avoids a policy-sensitive permission.
 | AC-14 | Any row, any state, any progress | rendered | the version line is either version numbers or one of `Downloading… n%` / `Installing…` / `Failed` — never a reason |
 | AC-15 | A row shows `Failed` | user taps the control | the attempt is retried |
 | AC-16 | A row shows `Failed` | user refreshes | the marker clears and the row shows its version again |
+| AC-17 | Device has 50 apps, catalogue has 10 | app opens | exactly 10 rows are shown |
+| AC-18 | An app is installed but absent from the catalogue | app opens | it is not listed |
+| AC-19 | The catalogue includes `com.lucid.auto.appstore` | app opens | the store is not a row |
+| AC-20 | Catalogue unreachable, nothing cached | app opens | the list is empty with an error banner |
+| AC-21 | Catalogue unreachable after a good fetch | refresh | the previous list stays on screen |
 
 ---
 

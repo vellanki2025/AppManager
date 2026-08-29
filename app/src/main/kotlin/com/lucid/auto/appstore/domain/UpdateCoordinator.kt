@@ -19,6 +19,8 @@ class UpdateCoordinator(
     private val repository: AppRepository,
     private val downloader: ApkDownloader,
     private val installer: AppInstaller,
+    /** This app's own package, so it can update itself without appearing in the list. */
+    private val selfPackageName: String,
 ) {
     /** Serialises installs — the platform installs one session at a time anyway. */
     private val installLock = Mutex()
@@ -88,9 +90,63 @@ class UpdateCoordinator(
         return UpdateSweep(updated, failed)
     }
 
+    /**
+     * Updates the store itself, if the catalogue offers a newer build.
+     *
+     * The store is never a row in the list, so this cannot be reached through
+     * [applyPendingUpdates] — it is a separate, deliberate step.
+     *
+     * ### The process dies partway through
+     *
+     * Committing an update to your own package kills your own process. This function therefore
+     * **cannot observe its own success**: on the happy path it never returns. Nothing may be
+     * sequenced after it, which is why callers must run it *last*.
+     *
+     * ### Safety
+     *
+     * - Only ever called from the background worker. Doing it from a tap would kill the app
+     *   under the user's finger.
+     * - Runs after every other pending update, so a self-kill cannot abandon them.
+     * - A checksum is mandatory. Every other app can be repaired by the store; a corrupt store
+     *   cannot repair itself, so an unverifiable build is refused rather than installed.
+     * - Downgrades are refused explicitly, for a clearer failure than the platform's.
+     */
+    suspend fun applySelfUpdate(catalogByPackage: Map<String, RemoteApp>): SelfUpdate {
+        val remote = catalogByPackage[selfPackageName] ?: return SelfUpdate.NotOffered
+        val local = repository.installed(selfPackageName) ?: return SelfUpdate.NotOffered
+
+        if (remote.versionCode <= local.versionCode) return SelfUpdate.AlreadyCurrent
+
+        if (remote.sha256.isNullOrBlank()) {
+            Log.w(TAG, "Refusing self-update to ${remote.versionName}: catalogue has no checksum")
+            return SelfUpdate.Refused("the catalogue entry has no sha256 checksum")
+        }
+
+        Log.i(TAG, "Self-updating ${local.versionName} -> ${remote.versionName}. " +
+            "This process is expected to be killed on commit.")
+
+        return when (val outcome = installOrUpdate(remote)) {
+            // Reaching here at all means the platform did not kill us, which in practice means
+            // the update did not actually complete.
+            is InstallOutcome.Failure -> SelfUpdate.Failed(outcome.message)
+            else -> SelfUpdate.Committed
+        }
+    }
+
     private companion object {
         const val TAG = "UpdateCoordinator"
     }
+}
+
+/** Outcome of a self-update attempt. [Committed] usually never reaches the caller. */
+sealed interface SelfUpdate {
+    /** The catalogue does not list the store at all. */
+    data object NotOffered : SelfUpdate
+    data object AlreadyCurrent : SelfUpdate
+    /** Rejected before download - e.g. no checksum to verify against. */
+    data class Refused(val reason: String) : SelfUpdate
+    data class Failed(val message: String) : SelfUpdate
+    data object Committed : SelfUpdate
 }
 
 /** One app that failed to update, named for a user-facing report outside the list. */

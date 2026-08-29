@@ -27,6 +27,15 @@
       "apkFile": "spotify-8.9.55.apk",
       "iconFile": "spotify.png",
       "releaseNotes": "Bug fixes and performance improvements."
+    },
+    {
+      "packageName": "com.lucid.auto.appstore",
+      "title": "Lucid App Store",
+      "versionName": "1.0.0",
+      "versionCode": 1,
+      "apkFile": "lucid-appstore-1.0.0.apk",
+      "iconFile": "lucid-media.png",
+      "releaseNotes": "Self-update channel for the store itself."
     }
   ]
 }

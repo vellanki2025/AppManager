@@ -47,11 +47,11 @@ is what makes the core logic testable on a plain JVM.
 
 ### 2.1 Local version discovery — **the core of the "how do we know the version?" question**
 
-| Component | File | Responsibility |
-|---|---|---|
-| `InstalledApp` | `data/local/InstalledApp.kt` | Immutable snapshot: package, label, `versionName`, `versionCode: Long`. |
-| `PackageInspector` | `data/local/PackageInspector.kt` | Interface — `getInstalled(pkg): InstalledApp?`, `getIcon(pkg): ImageBitmap?`. Fakeable in tests. |
-| `PackageManagerInspector` | `data/local/PackageManagerInspector.kt` | Real impl over `PackageManager`. |
+| Component                    | File                                    | Responsibility                                                                                   |
+|------------------------------|-----------------------------------------|--------------------------------------------------------------------------------------------------|
+| `InstalledApp`               | `data/local/InstalledApp.kt`            | Immutable snapshot: package, label, `versionName`, `versionCode: Long`.                          |
+| `PackageInspector`           | `data/local/PackageInspector.kt`        | Interface — `getInstalled(pkg): InstalledApp?`, `getIcon(pkg): ImageBitmap?`. Fakeable in tests. |
+| `PackageManagerInspector`    | `data/local/PackageManagerInspector.kt` | Real impl over `PackageManager`.                                                                 |
 
 ```kotlin
 override fun getInstalled(packageName: String): InstalledApp? = try {
@@ -78,40 +78,39 @@ override fun getInstalled(packageName: String): InstalledApp? = try {
 
 ### 2.2 Catalogue (remote versions)
 
-| Component | Responsibility |
-|---|---|
-| `RemoteApp` | `@Serializable` DTO: packageName, title, versionName, versionCode, apkUrl, iconUrl, sizeBytes, sha256?, releaseNotes?. |
-| `AppCatalog` | Wrapper: manifestVersion, generatedAt, apps. |
-| `CatalogApi` | OkHttp `GET {baseUrl}/api/v1/apps` → `AppCatalog`. |
-| `CatalogRepository` | Caches the last good catalogue in memory; exposes `Result<AppCatalog>`. |
+| Component           | Responsibility                                                                                                         |
+|---------------------|------------------------------------------------------------------------------------------------------------------------|
+| `RemoteApp`         | `@Serializable` DTO: packageName, title, versionName, versionCode, apkUrl, iconUrl, sizeBytes, sha256?, releaseNotes?. |
+| `AppCatalog`        | Wrapper: manifestVersion, generatedAt, apps.                                                                           |
+| `CatalogApi`        | OkHttp `GET {baseUrl}/api/v1/apps` → `AppCatalog`.                                                                     |
+| `CatalogRepository` | Caches the last good catalogue in memory; exposes `Result<AppCatalog>`.                                                |
 
 `Json { ignoreUnknownKeys = true }` so the server can add fields without breaking shipped cars.
 
 ### 2.3 Merge & state
 
-| Component | Responsibility |
-|---|---|
-| `ManagedApps` | The fixed list of 3 package names + display fallbacks. Single source of truth, also read by the manifest `<queries>` list. |
-| `AppStateResolver` | **Pure function** `(InstalledApp?, RemoteApp?) → AppState`. The most-tested class in the project. |
-| `AppItem` | What the UI renders: icon, title, version strings, state, progress. |
-| `AppRepository` | For each managed package: inspect locally + look up remotely + resolve → `List<AppItem>`. |
+| Component          | Responsibility                                                                                                                                                                            |
+|--------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `AppStateResolver` | **Pure function** `(InstalledApp?, RemoteApp?) → AppState`. The most-tested class in the project.                                                                                         |
+| `AppItem`          | What the UI renders: icon, title, version strings, state, progress.                                                                                                                       |
+| `AppRepository`    | For each **catalogue** entry: read the local version + resolve → `List<AppItem>`. Filters out the store's own package. Apps on the device but absent from the catalogue are never listed. |
 
 ### 2.4 Download
 
-| Component | Responsibility |
-|---|---|
-| `ApkDownloader` | Streams the APK to `cacheDir/apks/`, emits `DownloadProgress`, verifies SHA-256, deletes partials. |
-| `DownloadResult` | `Success(File)` / `Failure(reason)`. |
+| Component        | Responsibility                                                                                     |
+|------------------|----------------------------------------------------------------------------------------------------|
+| `ApkDownloader`  | Streams the APK to `cacheDir/apks/`, emits `DownloadProgress`, verifies SHA-256, deletes partials. |
+| `DownloadResult` | `Success(File)` / `Failure(reason)`.                                                               |
 
 ### 2.5 Install — the dual-mode installer
 
-| Component | Responsibility |
-|---|---|
-| `AppInstaller` | Interface: `suspend fun install(pkg, apk): InstallOutcome`, plus `installMode`. |
-| `SessionAppInstaller` | `PackageInstaller` session: create → `openWrite` → `fsync` → `commit(PendingIntent)`. |
-| `InstallMode` | `SILENT` (privileged, `INSTALL_PACKAGES` granted) vs `INTERACTIVE`. Detected at runtime. |
+| Component               | Responsibility                                                                                                                                                                |
+|-------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `AppInstaller`          | Interface: `suspend fun install(pkg, apk): InstallOutcome`, plus `installMode`.                                                                                               |
+| `SessionAppInstaller`   | `PackageInstaller` session: create → `openWrite` → `fsync` → `commit(PendingIntent)`.                                                                                         |
+| `InstallMode`           | `SILENT` (privileged, `INSTALL_PACKAGES` granted) vs `INTERACTIVE`. Detected at runtime.                                                                                      |
 | `InstallResultReceiver` | `BroadcastReceiver` for the commit `PendingIntent`. On `STATUS_PENDING_USER_ACTION` it launches the confirm intent; otherwise it completes the pending `CompletableDeferred`. |
-| `InstallOutcome` | `Success` / `Failure(code, message)` / `Cancelled`. |
+| `InstallOutcome`        | `Success` / `Failure(code, message)` / `Cancelled`.                                                                                                                           |
 
 Runtime detection:
 
@@ -126,55 +125,55 @@ installed itself — enough to demo auto-update on a stock emulator.
 
 ### 2.6 Orchestration
 
-| Component | Responsibility |
-|---|---|
-| `UpdateCoordinator` | The one place that runs download → verify → install → refresh, emitting per-package progress. Shared by the UI tap path and the auto-update path so they cannot diverge. |
-| `InstallProgressStore` | In-memory `MutableStateFlow<Map<String, InstallProgress>>` merged into `AppItem`s. |
+| Component              | Responsibility                                                                                                                                                                                                                                                                                                    |
+|------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `UpdateCoordinator`    | The one place that runs download → verify → install → refresh, emitting per-package progress. Shared by the UI tap path and the auto-update path so they cannot diverge. Also owns `applySelfUpdate`, which updates the store itself — background only, and always last, because committing it kills the process. |
+| `InstallProgressStore` | In-memory `MutableStateFlow<Map<String, InstallProgress>>` merged into `AppItem`s.                                                                                                                                                                                                                                |
 
 ### 2.7 Settings & auto-update
 
-| Component | Responsibility |
-|---|---|
-| `SettingsRepository` | DataStore Preferences: `autoUpdateEnabled: Flow<Boolean>` (default false) and `baseUrl`. |
+| Component             | Responsibility                                                                                                                                                                 |
+|-----------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `SettingsRepository`  | DataStore Preferences: `autoUpdateEnabled: Flow<Boolean>` (default false) and `baseUrl`.                                                                                       |
 | `AutoUpdateScheduler` | `enqueue()` → unique `PeriodicWorkRequest` (6 h, unmetered, battery-not-low, `ExistingPeriodicWorkPolicy.KEEP`). `cancel()` → `cancelUniqueWork`. Called on every flag change. |
-| `AutoUpdateWorker` | `CoroutineWorker`: re-check the flag, refresh, update only `UPDATE`-state apps. |
-| `BootReceiver` | `RECEIVE_BOOT_COMPLETED` → re-arm **only if** the flag is on. |
+| `AutoUpdateWorker`    | `CoroutineWorker`: re-check the flag, refresh, update only `UPDATE`-state apps.                                                                                                |
+| `BootReceiver`        | `RECEIVE_BOOT_COMPLETED` → re-arm **only if** the flag is on.                                                                                                                  |
 
 Because both the launch pass and the worker are gated on the same flag, "only when the flag is
 enabled" holds in both directions: turning it off cancels the worker *and* short-circuits launch.
 
 ### 2.8 UI
 
-| Component | Responsibility |
-|---|---|
-| `MainActivity` | Single activity, `setContent { LucidAppStoreTheme { AppListScreen() } }`. |
-| `AppListViewModel` | Owns `StateFlow<AppListUiState>`; intents `refresh()`, `onAppAction(pkg)`, `setAutoUpdate(Boolean)`. |
-| `AppListUiState` | `items`, `isRefreshing`, `errorMessage`, `autoUpdateEnabled`, `installMode`. |
-| `AppListScreen` | Top bar (title, auto-update `Switch`, refresh), error banner, `LazyColumn`. |
-| `AppRow` | Icon · title · version line · state control. `INSTALLED` renders as a disabled control — `onAppAction` is never invoked for it. |
+| Component          | Responsibility                                                                                                                  |
+|--------------------|---------------------------------------------------------------------------------------------------------------------------------|
+| `MainActivity`     | Single activity, `setContent { LucidAppStoreTheme { AppListScreen() } }`.                                                       |
+| `AppListViewModel` | Owns `StateFlow<AppListUiState>`; intents `refresh()`, `onAppAction(pkg)`, `setAutoUpdate(Boolean)`.                            |
+| `AppListUiState`   | `items`, `isRefreshing`, `errorMessage`, `autoUpdateEnabled`, `installMode`.                                                    |
+| `AppListScreen`    | Top bar (title, auto-update `Switch`, refresh), error banner, `LazyColumn`.                                                     |
+| `AppRow`           | Icon · title · version line · state control. `INSTALLED` renders as a disabled control — `onAppAction` is never invoked for it. |
 
 Test tags (`appRow_<pkg>`, `actionButton_<pkg>`, `autoUpdateSwitch`) are set so Compose tests can
 assert row content and tap behaviour without a device.
 
 ### 2.9 Wiring
 
-| Component | Responsibility |
-|---|---|
-| `ServiceLocator` | Plain hand-rolled DI. Every dependency is an interface with a fake, so no DI framework is needed and tests construct objects directly. |
-| `LucidAppStoreApplication` | Initialises the locator; re-arms the scheduler from the persisted flag. |
-| `AppStoreConfig` | `BuildConfig.DEFAULT_CATALOG_BASE_URL`, overridable at runtime. |
+| Component                  | Responsibility                                                                                                                         |
+|----------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
+| `ServiceLocator`           | Plain hand-rolled DI. Every dependency is an interface with a fake, so no DI framework is needed and tests construct objects directly. |
+| `LucidAppStoreApplication` | Initialises the locator; re-arms the scheduler from the persisted flag.                                                                |
+| `AppStoreConfig`           | `BuildConfig.DEFAULT_CATALOG_BASE_URL`, overridable at runtime.                                                                        |
 
 ---
 
 ## 3. Backend components (local test harness)
 
-| Component | File | Responsibility |
-|---|---|---|
+| Component          | File               | Responsibility                                                                                                                                |
+|--------------------|--------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
 | Catalogue endpoint | `server/server.js` | `GET /api/v1/apps` — reads `data/apps.json`, rewrites relative URLs to the requesting host so a phone on Wi-Fi gets a reachable absolute URL. |
-| APK hosting | `server/apks/` | `GET /apks/<file>.apk`, served with `Content-Length` and range support. |
-| Icon hosting | `server/icons/` | `GET /icons/<file>.png`. |
-| Health | `/health` | Trivial reachability check for debugging Wi-Fi. |
-| Admin helpers | `/admin/bump/:pkg` | Increments a `versionCode` in memory so `Installed` flips to `Update` without editing files. |
+| APK hosting        | `server/apks/`     | `GET /apks/<file>.apk`, served with `Content-Length` and range support.                                                                       |
+| Icon hosting       | `server/icons/`    | `GET /icons/<file>.png`.                                                                                                                      |
+| Health             | `/health`          | Trivial reachability check for debugging Wi-Fi.                                                                                               |
+| Admin helpers      | `/admin/bump/:pkg` | Increments a `versionCode` in memory so `Installed` flips to `Update` without editing files.                                                  |
 
 Startup prints every LAN IP so you can point the app at `http://<ip>:8080`.
 
@@ -182,23 +181,41 @@ Startup prints every LAN IP so you can point the app at `http://<ip>:8080`.
 
 ## 4. Threading model
 
-| Work | Dispatcher |
-|---|---|
-| `PackageManager` reads, icon decode | `Dispatchers.IO` |
-| Catalogue fetch, APK download, SHA-256 | `Dispatchers.IO` (OkHttp) |
-| State merge / resolution | `Dispatchers.Default` |
-| Compose recomposition | Main |
+| Work                                             | Dispatcher                         |
+|--------------------------------------------------|------------------------------------|
+| `PackageManager` reads, icon decode, state merge | `ioDispatcher`, forced by `flowOn` |
+| Catalogue fetch, APK download, SHA-256           | `Dispatchers.IO` (OkHttp)          |
+| Compose recomposition                            | Main                               |
 
-The ViewModel exposes a single `StateFlow` via `stateIn(viewModelScope, WhileSubscribed(5_000), …)`.
+### Why `flowOn` on `AppRepository.items` is load-bearing
+
+A `combine` transform runs on the **collector's** context, and the collector is the ViewModel on
+the main thread. Without `flowOn(ioDispatcher)`, every rebuild would do Binder calls into
+`PackageManager` and decode app icons on the UI thread — breaking NFR-2.
+
+That matters because `_progress` is one of the combined sources and ticks **once per percent** of
+a download: roughly 100 rebuilds per install. `.conflate()` then lets a burst of those collapse
+into one recomposition when the UI is behind.
+
+### Why icons are cached but versions are not
+
+|         | Cached?                                    | Why                                                                                                                                                                                                                                                                                                                      |
+|---------|--------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Icon    | **Yes**, keyed by `(package, versionCode)` | Decoding a drawable out of an APK is an order of magnitude dearer than reading a version, and the key cannot go stale: an icon cannot change without the APK changing, and the APK cannot change without the versionCode changing.                                                                                       |
+| Version | **No**                                     | `PackageManager` is already an in-memory cache in `system_server`; a targeted `getPackageInfo` is sub-millisecond. Caching it would add a staleness bug for every install/uninstall the store does not perform itself — a user uninstalling from Settings, adb, an MDM push — none of which the store is notified about. |
+
+If re-querying ever does become a measured problem, the fix is a `PACKAGE_ADDED` /
+`PACKAGE_REMOVED` / `PACKAGE_REPLACED` receiver — push instead of poll, with no staleness — not a
+cache.
 
 ---
 
 ## 5. What ships where
 
-| Build | Install capability | Notes |
-|---|---|---|
-| `debug` APK, sideloaded | Interactive install; silent update of self-installed apps on API 31+ | Testable on a stock emulator today. |
-| `release` APK, sideloaded | same | Cleartext HTTP disabled. |
-| Privileged system image | Fully silent install + update | APK in `/system/priv-app/LucidAppStore/`, allowlist XML in `/system/etc/permissions/`, signed with the platform key. |
+| Build                     | Install capability                                                   | Notes                                                                                                                |
+|---------------------------|----------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------|
+| `debug` APK, sideloaded   | Interactive install; silent update of self-installed apps on API 31+ | Testable on a stock emulator today.                                                                                  |
+| `release` APK, sideloaded | same                                                                 | Cleartext HTTP disabled.                                                                                             |
+| Privileged system image   | Fully silent install + update                                        | APK in `/system/priv-app/LucidAppStore/`, allowlist XML in `/system/etc/permissions/`, signed with the platform key. |
 
 The code path is identical; only `InstallMode` differs, decided at runtime.

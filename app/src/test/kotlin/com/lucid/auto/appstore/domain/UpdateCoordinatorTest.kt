@@ -21,6 +21,8 @@ class UpdateCoordinatorTest {
 
     @get:Rule val temp = TemporaryFolder()
 
+    private val SELF_PACKAGE = "com.lucid.auto.appstore"
+
     private val inspector = FakePackageInspector()
     private val api = FakeCatalogApi()
     private val catalogRepository = CatalogRepository(api)
@@ -32,8 +34,10 @@ class UpdateCoordinatorTest {
 
     private fun setUp() {
         downloader = FakeApkDownloader(temp.root)
-        repository = AppRepository(inspector, catalogRepository, ioDispatcher = UnconfinedTestDispatcher())
-        coordinator = UpdateCoordinator(repository, downloader, installer)
+        repository = AppRepository(
+            inspector, catalogRepository, SELF_PACKAGE, UnconfinedTestDispatcher(),
+        )
+        coordinator = UpdateCoordinator(repository, downloader, installer, SELF_PACKAGE)
     }
 
     private val catalog = AppCatalog(

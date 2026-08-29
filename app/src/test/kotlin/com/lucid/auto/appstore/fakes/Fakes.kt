@@ -1,6 +1,7 @@
 package com.lucid.auto.appstore.fakes
 
 import androidx.compose.ui.graphics.ImageBitmap
+import io.mockk.mockk
 import com.lucid.auto.appstore.data.catalog.AppCatalog
 import com.lucid.auto.appstore.data.catalog.CatalogApi
 import com.lucid.auto.appstore.data.catalog.RemoteApp
@@ -25,10 +26,24 @@ class FakePackageInspector(
 
     var iconsAvailable: Boolean = false
 
-    override fun getInstalled(packageName: String): InstalledApp? = installed[packageName]
+    /** How many times an icon was actually decoded, per package. Pins the icon cache. */
+    val iconDecodes = mutableMapOf<String, Int>()
 
-    override fun getIcon(packageName: String): ImageBitmap? =
-        if (iconsAvailable && installed.containsKey(packageName)) ImageBitmap(1, 1) else null
+    /** How many times a version was read, per package. */
+    val versionReads = mutableMapOf<String, Int>()
+
+    override fun getInstalled(packageName: String): InstalledApp? {
+        versionReads[packageName] = (versionReads[packageName] ?: 0) + 1
+        return installed[packageName]
+    }
+
+    /** A stand-in bitmap: the real constructor needs Android graphics, absent on a plain JVM. */
+    private val stubIcon: ImageBitmap by lazy { mockk(relaxed = true) }
+
+    override fun getIcon(packageName: String): ImageBitmap? {
+        iconDecodes[packageName] = (iconDecodes[packageName] ?: 0) + 1
+        return if (iconsAvailable && installed.containsKey(packageName)) stubIcon else null
+    }
 
     fun put(packageName: String, versionName: String, versionCode: Long, label: String? = null) {
         installed[packageName] = InstalledApp(packageName, label, versionName, versionCode)

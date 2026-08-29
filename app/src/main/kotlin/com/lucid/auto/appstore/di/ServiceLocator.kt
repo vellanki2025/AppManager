@@ -61,9 +61,10 @@ object ServiceLocator {
             .retryOnConnectionFailure(true)
             .build()
 
+        val selfPackageName = context.packageName
         val inspector = PackageManagerInspector(context)
         val catalogRepository = CatalogRepository(HttpCatalogApi(client))
-        val appRepository = AppRepository(inspector, catalogRepository)
+        val appRepository = AppRepository(inspector, catalogRepository, selfPackageName)
         val downloader = HttpApkDownloader(client, File(context.cacheDir, "apks"))
         val installer = SessionAppInstaller(context)
 
@@ -71,7 +72,9 @@ object ServiceLocator {
             packageInspector = inspector,
             catalogRepository = catalogRepository,
             appRepository = appRepository,
-            updateCoordinator = UpdateCoordinator(appRepository, downloader, installer),
+            updateCoordinator = UpdateCoordinator(
+                appRepository, downloader, installer, selfPackageName,
+            ),
             settingsRepository = DataStoreSettingsRepository(context),
             autoUpdateScheduler = WorkManagerAutoUpdateScheduler(WorkManager.getInstance(context)),
             remoteIconLoader = HttpRemoteIconLoader(client),

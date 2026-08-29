@@ -21,6 +21,7 @@ class AppRepositoryTest {
     private fun repository() = AppRepository(
         inspector = inspector,
         catalogRepository = catalogRepository,
+        selfPackageName = "com.lucid.auto.appstore",
         ioDispatcher = UnconfinedTestDispatcher(),
     )
 
@@ -66,29 +67,82 @@ class AppRepositoryTest {
     }
 
     @Test
-    fun `an unreachable catalog still lists installed apps as INSTALLED`() = runTest {
-        inspector.put("com.lucid.auto.media", "1.1.0", 10100, label = "Lucid Media")
-        api.error = java.io.IOException("connection refused")
+    fun `the catalog drives the list - device apps outside it are never shown`() = runTest {
+        // A device with plenty of apps installed...
+        repeat(50) { i -> inspector.put("com.other.app$i", "1.0.0", 1) }
+        inspector.put("com.lucid.auto.media", "1.1.0", 10100)
+        inspector.put("com.lucid.auto.radio", "2.0.0", 20000)
+        // ...and a catalogue naming only three of them.
+        api.catalog = fullCatalog
         val repository = repository()
+        catalogRepository.refresh("http://test")
 
-        val result = repository.refreshCatalog("http://unreachable")
-        val items = repository.currentItems()
+        val packages = repository.currentItems().map { it.packageName }
 
-        assertThat(result.isFailure).isTrue()
-        assertThat(items).hasSize(1)   // radio + spotify are unknown to both sides, so omitted
-        assertThat(items.single().packageName).isEqualTo("com.lucid.auto.media")
-        assertThat(items.single().state).isEqualTo(AppState.INSTALLED)
+        assertThat(packages).containsExactly(
+            "com.lucid.auto.media",
+            "com.lucid.auto.radio",
+            "com.spotify.music",
+        )
     }
 
     @Test
-    fun `an app known to neither side is omitted from the list`() = runTest {
-        api.catalog = AppCatalog(apps = listOf(remoteApp("com.lucid.auto.media", "1.2.0", 10200)))
+    fun `list size follows the catalog, not the device`() = runTest {
+        repeat(50) { i -> inspector.put("com.other.app$i", "1.0.0", 1) }
+        api.catalog = AppCatalog(
+            apps = (1..10).map { remoteApp("com.catalog.app$it", "1.0.0", 100) },
+        )
+        val repository = repository()
+        catalogRepository.refresh("http://test")
+
+        // 50 apps on the device, 10 in the catalogue -> 10 rows.
+        assertThat(repository.currentItems()).hasSize(10)
+    }
+
+    @Test
+    fun `the store never lists itself, even when the catalog offers it`() = runTest {
+        inspector.put("com.lucid.auto.appstore", "1.0.0", 1)
+        api.catalog = AppCatalog(
+            apps = listOf(
+                remoteApp("com.lucid.auto.media", "1.2.0", 10200),
+                remoteApp("com.lucid.auto.appstore", "2.0.0", 2, title = "Lucid App Store"),
+            ),
+        )
         val repository = repository()
         catalogRepository.refresh("http://test")
 
         val packages = repository.currentItems().map { it.packageName }
 
         assertThat(packages).containsExactly("com.lucid.auto.media")
+        assertThat(packages).doesNotContain("com.lucid.auto.appstore")
+    }
+
+    @Test
+    fun `an unreachable catalog with no cache shows nothing, not stale device apps`() = runTest {
+        inspector.put("com.lucid.auto.media", "1.1.0", 10100, label = "Lucid Media")
+        api.error = java.io.IOException("connection refused")
+        val repository = repository()
+
+        val result = repository.refreshCatalog("http://unreachable")
+
+        assertThat(result.isFailure).isTrue()
+        // Nothing has ever been fetched, so there is no catalogue to drive a list.
+        assertThat(repository.currentItems()).isEmpty()
+    }
+
+    @Test
+    fun `a failed refresh keeps showing the last good catalog`() = runTest {
+        inspector.put("com.lucid.auto.media", "1.1.0", 10100)
+        api.catalog = fullCatalog
+        val repository = repository()
+        catalogRepository.refresh("http://test")
+        assertThat(repository.currentItems()).hasSize(3)
+
+        api.error = java.io.IOException("network down")
+        assertThat(repository.refreshCatalog("http://test").isFailure).isTrue()
+
+        // The cached catalogue still drives the list, so the car keeps a usable screen offline.
+        assertThat(repository.currentItems()).hasSize(3)
     }
 
     @Test
@@ -121,6 +175,75 @@ class AppRepositoryTest {
         repository.setProgress("com.lucid.auto.media", null)
         assertThat(media().versionLabel).isEqualTo("1.1.0 → 1.2.0")
         assertThat(media().isBusy).isFalse()
+    }
+
+    @Test
+    fun `an icon is decoded once and reused across rebuilds`() = runTest {
+        inspector.iconsAvailable = true
+        inspector.put("com.lucid.auto.media", "1.1.0", 10100)
+        api.catalog = fullCatalog
+        val repository = repository()
+        catalogRepository.refresh("http://test")
+
+        // Simulate a download: one rebuild per percent, as the real downloader produces.
+        repeat(100) { percent ->
+            repository.setProgress("com.lucid.auto.media", InstallProgress.Downloading(percent))
+            repository.currentItems()
+        }
+
+        // Without the cache this would be ~100 drawable decodes.
+        assertThat(inspector.iconDecodes["com.lucid.auto.media"]).isEqualTo(1)
+    }
+
+    @Test
+    fun `a version bump re-decodes the icon`() = runTest {
+        inspector.iconsAvailable = true
+        inspector.put("com.lucid.auto.media", "1.1.0", 10100)
+        api.catalog = fullCatalog
+        val repository = repository()
+        catalogRepository.refresh("http://test")
+        repository.currentItems()
+        assertThat(inspector.iconDecodes["com.lucid.auto.media"]).isEqualTo(1)
+
+        // The app updates: same package, new versionCode -> the cached icon must not be reused.
+        inspector.put("com.lucid.auto.media", "1.2.0", 10200)
+        repository.currentItems()
+
+        assertThat(inspector.iconDecodes["com.lucid.auto.media"]).isEqualTo(2)
+    }
+
+    @Test
+    fun `versions are re-read every rebuild - only icons are cached`() = runTest {
+        // The device is the source of truth for versions; caching those would go stale when
+        // something outside the store installs or uninstalls an app.
+        inspector.put("com.lucid.auto.media", "1.1.0", 10100)
+        api.catalog = fullCatalog
+        val repository = repository()
+        catalogRepository.refresh("http://test")
+
+        repository.currentItems()
+        repository.currentItems()
+        repository.currentItems()
+
+        assertThat(inspector.versionReads["com.lucid.auto.media"]).isEqualTo(3)
+    }
+
+    @Test
+    fun `an app uninstalled outside the store is reflected immediately`() = runTest {
+        inspector.put("com.lucid.auto.media", "1.1.0", 10100)
+        api.catalog = fullCatalog
+        val repository = repository()
+        catalogRepository.refresh("http://test")
+        assertThat(
+            repository.currentItems().first { it.packageName == "com.lucid.auto.media" }.state,
+        ).isEqualTo(AppState.UPDATE)
+
+        // Someone uninstalls it from Settings - no notification to the store.
+        inspector.remove("com.lucid.auto.media")
+
+        assertThat(
+            repository.currentItems().first { it.packageName == "com.lucid.auto.media" }.state,
+        ).isEqualTo(AppState.INSTALL)
     }
 
     @Test

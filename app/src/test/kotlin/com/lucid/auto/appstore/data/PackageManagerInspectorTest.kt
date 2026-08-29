@@ -5,7 +5,6 @@ import android.content.pm.PackageInfo
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import com.lucid.auto.appstore.data.local.PackageManagerInspector
-import com.lucid.auto.appstore.domain.ManagedApps
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -74,7 +73,9 @@ class PackageManagerInspectorTest {
         install("com.lucid.auto.media", "1.1.0", 10100, "Lucid Media")
         install("com.lucid.auto.radio", "2.0.0", 20000, "Lucid Radio")
 
-        val found = inspector.getInstalled(ManagedApps.PACKAGE_NAMES)
+        val found = inspector.getInstalled(
+            listOf("com.lucid.auto.media", "com.lucid.auto.radio", "com.spotify.music"),
+        )
 
         assertThat(found.keys)
             .containsExactly("com.lucid.auto.media", "com.lucid.auto.radio")
@@ -82,11 +83,11 @@ class PackageManagerInspectorTest {
     }
 
     @Test
-    fun `the managed package list matches the three in-scope apps`() {
-        assertThat(ManagedApps.PACKAGE_NAMES).containsExactly(
-            "com.lucid.auto.media",
-            "com.lucid.auto.radio",
-            "com.spotify.music",
-        ).inOrder()
+    fun `an app can always read its own package without a queries declaration`() {
+        // This is what lets the store check its own version for self-update.
+        val self = inspector.getInstalled(context.packageName)
+
+        assertThat(self).isNotNull()
+        assertThat(self!!.packageName).isEqualTo(context.packageName)
     }
 }

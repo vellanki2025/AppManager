@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.lucid.auto.appstore.di.ServiceLocator
+import com.lucid.auto.appstore.domain.SelfUpdate
 
 /**
  * The periodic half of auto-update.
@@ -34,9 +35,18 @@ class AutoUpdateWorker(
         }
 
         graph.appRepository.refreshLocal()
-        val sweep = graph.updateCoordinator.applyPendingUpdates(catalog.byPackage())
+        val byPackage = catalog.byPackage()
+        val sweep = graph.updateCoordinator.applyPendingUpdates(byPackage)
         Log.i(TAG, "Auto-update finished. Updated: ${sweep.updated.ifEmpty { listOf("nothing") }}")
         sweep.failed.forEach { Log.w(TAG, "Auto-update failed for ${it.title}: ${it.message}") }
+
+        // The store updates itself LAST, and only here in the background — never from a tap.
+        // Committing an update to our own package kills this process, so nothing may follow.
+        when (val self = graph.updateCoordinator.applySelfUpdate(byPackage)) {
+            is SelfUpdate.Refused -> Log.w(TAG, "Self-update refused: ${self.reason}")
+            is SelfUpdate.Failed -> Log.w(TAG, "Self-update failed: ${self.message}")
+            else -> Unit
+        }
 
         // A transient failure (server hiccup, storage) is worth one retry; the next run re-reads
         // local versions, so anything that actually succeeded will not be attempted again.
