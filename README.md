@@ -44,7 +44,7 @@ Three details make this correct rather than merely working:
    app added to the catalogue after the APK shipped would be invisible.
 
 The state each row shows then falls out of one pure comparison
-([`AppStateResolver`](app/src/main/kotlin/com/lucid/auto/appstore/domain/AppStateResolver.kt)):
+([`AppStateResolver`](automotive/src/main/kotlin/com/lucid/auto/appstore/domain/AppStateResolver.kt)):
 
 | Local | Remote | Condition | State |
 |---|---|---|---|
@@ -125,13 +125,13 @@ three forms** — and nothing else:
 **The row says _that_ something failed; never _why_.** `Download failed: HTTP 404` goes in the
 banner above the list, named per app. This is enforced structurally rather than by convention:
 
-- [`AppState`](app/src/main/kotlin/com/lucid/auto/appstore/domain/AppState.kt) has **three**
+- [`AppState`](automotive/src/main/kotlin/com/lucid/auto/appstore/domain/AppState.kt) has **three**
   values, so the action control can only ever read `Install`, `Update` or `Installed` — a busy or
   failed row is never renamed.
-- [`InstallProgress.Failed`](app/src/main/kotlin/com/lucid/auto/appstore/domain/InstallProgress.kt)
+- [`InstallProgress.Failed`](automotive/src/main/kotlin/com/lucid/auto/appstore/domain/InstallProgress.kt)
   is a `data object` carrying **no message**. The reason travels back through
   `UpdateCoordinator`'s return value instead, so it cannot reach a row even by accident.
-- [`AppItem`](app/src/main/kotlin/com/lucid/auto/appstore/domain/AppItem.kt) has no error or
+- [`AppItem`](automotive/src/main/kotlin/com/lucid/auto/appstore/domain/AppItem.kt) has no error or
   free-text field, so nothing can put prose into a row.
 - A `Failed` marker describes the last attempt, not the app: it clears on refresh, and the row
   stays tappable to retry.
@@ -247,12 +247,37 @@ asked for.
 Prerequisites: JDK 17+, Android SDK with API 35, Node 18+.
 
 ```bash
-./gradlew :app:assembleDebug
+./gradlew :automotive:assembleDebug
 ```
 
 ```bash
-./gradlew :app:testDebugUnitTest
+./gradlew :automotive:testDebugUnitTest
 ```
+
+**Always build release as well before shipping.** `lintVital` runs only on release, so a fatal
+lint error can sit in a green debug build indefinitely:
+
+```bash
+./gradlew :automotive:assembleRelease
+```
+
+### APK size
+
+| Build | Size |
+|---|---|
+| debug | ~27 MB |
+| release (unsigned, no R8) | ~20 MB |
+
+Two things keep it there:
+
+- **`material-icons-extended` is deliberately not a dependency.** It packs thousands of icon
+  classes and cost ~30 MB of dex for the one icon this app uses. `Icons.Filled.Refresh` lives in
+  `material-icons-core`, which Material 3 already brings in transitively. If you ever add
+  `implementation("androidx.compose.material:material-icons-extended")`, expect the APK to roughly
+  double.
+- **`isMinifyEnabled` is `false` for release**, deliberately and for now. R8 would cut the size
+  substantially, but the catalogue is parsed by `kotlinx.serialization`, so enabling it needs the
+  keep rules verified on a device rather than assumed. Treat that as a separate, tested change.
 
 ### Test over Wi-Fi
 
@@ -278,9 +303,9 @@ cd server && npm install && npm start
 
 **3. Point the app at it.** Debug builds default to `http://10.0.2.2:8080` (the emulator's route
 to your laptop). For a real device on the same Wi-Fi, either edit
-`DEFAULT_CATALOG_BASE_URL` in [app/build.gradle.kts](app/build.gradle.kts) to your LAN IP, or
+`DEFAULT_CATALOG_BASE_URL` in [automotive/build.gradle.kts](automotive/build.gradle.kts) to your LAN IP, or
 override it at runtime via `AppListViewModel.setCatalogBaseUrl`. Cleartext HTTP is permitted only
-for local addresses, via [network_security_config.xml](app/src/main/res/xml/network_security_config.xml);
+for local addresses, via [network_security_config.xml](automotive/src/main/res/xml/network_security_config.xml);
 add your LAN IP there when testing on a device.
 
 **4. Seed the device, then publish something newer.**
@@ -369,7 +394,7 @@ one, use the PID from `lsof`: `kill <pid>`.
 calling 8080 and the error looks identical to a dead server. Change both or neither:
 
 ```kotlin
-// app/build.gradle.kts, debug buildType
+// automotive/build.gradle.kts, debug buildType
 buildConfigField("String", "DEFAULT_CATALOG_BASE_URL", "\"http://10.0.2.2:8081\"")
 ```
 
@@ -381,7 +406,7 @@ Two extra steps beyond the emulator flow:
 
 1. Use the `wifi` address the server prints at startup, not `10.0.2.2` — that alias only exists
    inside an emulator. Set it as `DEFAULT_CATALOG_BASE_URL` and rebuild.
-2. Add that IP to [network_security_config.xml](app/src/main/res/xml/network_security_config.xml).
+2. Add that IP to [network_security_config.xml](automotive/src/main/res/xml/network_security_config.xml).
    Only `10.0.2.2`, `localhost` and `127.0.0.1` are allowed cleartext; any other host is blocked
    over plain HTTP and fails with a `CLEARTEXT communication not permitted` error.
 
@@ -436,7 +461,7 @@ Check in order:
 
 ## Tests
 
-`./gradlew :app:testDebugUnitTest` — 93 tests, no emulator. Compose UI tests run under
+`./gradlew :automotive:testDebugUnitTest` — 93 tests, no emulator. Compose UI tests run under
 Robolectric.
 
 | Suite | Covers |
@@ -470,7 +495,7 @@ The flow was exercised on a Pixel 6 API 34 emulator against the local server:
 ## Layout
 
 ```
-app/                    the LucidAppStore Android app
+automotive/             the LucidAppStore Android app (Gradle module :automotive)
   src/main/kotlin/...   data · domain · ui · update · di
   src/test/kotlin/...   unit + Compose tests, fakes
 samples/app/            three tiny fixture APKs (product flavours)

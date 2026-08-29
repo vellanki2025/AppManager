@@ -73,6 +73,26 @@
             </intent-filter>
         </activity>
 
+        <!-- ==========================================================
+             WorkManager uses ON-DEMAND initialisation: LucidAppStoreApplication
+             implements Configuration.Provider, so the default startup initializer
+             must be removed or WorkManager would be configured twice.
+
+             This is a FATAL lint check (RemoveWorkManagerInitializer), so leaving
+             it in fails `assembleRelease` even though `assembleDebug` passes -
+             lintVital only runs on release builds.
+             ========================================================== -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
+
         <!-- Receives the PackageInstaller session commit callback. -->
         <receiver
             android:name=".data.install.InstallResultReceiver"

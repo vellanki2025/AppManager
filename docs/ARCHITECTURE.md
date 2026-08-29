@@ -165,6 +165,16 @@ assert row content and tap behaviour without a device.
 
 ---
 
+## 2.10 Build-level constraints worth knowing
+
+| Constraint | Why |
+|---|---|
+| No `material-icons-extended` | ~30 MB of dex for one icon. `Icons.Filled.Refresh` comes from `material-icons-core` via Material 3. |
+| `WorkManagerInitializer` removed from the manifest | `LucidAppStoreApplication` implements `Configuration.Provider` (on-demand init). Leaving the startup initializer in is a **fatal** lint error that fails `assembleRelease` while `assembleDebug` stays green — `lintVital` runs only on release. |
+| `isMinifyEnabled = false` on release | Deliberate for now; R8 keep rules for `kotlinx.serialization` need verifying on a device first. |
+
+---
+
 ## 3. Backend components (local test harness)
 
 | Component          | File               | Responsibility                                                                                                                                |

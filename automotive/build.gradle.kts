@@ -81,8 +81,10 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
+    // NOTE: material-icons-extended is deliberately NOT a dependency. It packs thousands of
+    // icon classes and cost ~30 MB of dex for the single icon this app uses. Icons.Filled.Refresh
+    // lives in material-icons-core, which Material 3 already brings in transitively.
     implementation(libs.androidx.compose.material3)
-    implementation(libs.androidx.compose.material.icons)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 

@@ -20,5 +20,5 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "LucidAppStore"
-include(":app")
+include(":automotive")
 include(":samples:app")
