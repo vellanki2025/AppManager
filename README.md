@@ -12,7 +12,7 @@ Android only. Kotlin + Jetpack Compose.
 | minSdk / targetSdk / compileSdk | 29 / 35 / 35 |
 | UI | Jetpack Compose (Material 3) |
 | Tests | 93 unit + Compose tests, no emulator needed |
-| Docs | [Requirements](docs/REQUIREMENTS.md) · [Architecture](docs/ARCHITECTURE.md) · [Troubleshooting](#troubleshooting) |
+| Docs | [Delivery plan](docs/DELIVERY_PLAN.md) · [Requirements](docs/REQUIREMENTS.md) · [Architecture](docs/ARCHITECTURE.md) · [Troubleshooting](#troubleshooting) |
 
 ---
 
@@ -502,8 +502,19 @@ samples/app/            three tiny fixture APKs (product flavours)
 server/                 Node + Express catalogue and APK host
 tools/                  publish-samples.sh · apk-version.sh
 system/                 privapp permission allowlist for the privileged build
-docs/                   REQUIREMENTS.md · ARCHITECTURE.md
+docs/                   DELIVERY_PLAN.md (+ .docx) · REQUIREMENTS.md · ARCHITECTURE.md
 ```
+
+---
+
+## Delivery plan
+
+The programme plan — team structure, responsibilities, interface contracts, security and rollback
+requirements, risks, and a 6-week / 3-sprint schedule — lives in
+[docs/DELIVERY_PLAN.md](docs/DELIVERY_PLAN.md).
+
+`docs/LucidAppStore-Delivery-Plan.docx` is the same content as a Word document for sharing outside
+the repo. It is generated, not hand-edited: change the Markdown, then regenerate.
 
 ---
 
