@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Privileged permission allowlist for LucidAppStore.
+
+    Install to ONE of:
+        /system/etc/permissions/privapp-permissions-com.lucid.auto.appstore.xml
+        /product/etc/permissions/privapp-permissions-com.lucid.auto.appstore.xml
+
+    together with the APK at:
+        /system/priv-app/LucidAppStore/LucidAppStore.apk
+
+    Android verifies at boot that every signature|privileged permission requested by a
+    priv-app is allowlisted. If this file is missing, the device does NOT silently drop the
+    permission; on a userdebug or eng build it refuses to boot. Ship the two together.
+
+    With INSTALL_PACKAGES granted, SessionAppInstaller reports InstallMode.SILENT and every
+    install and update completes with no user-facing dialog. Without it, the same APK falls
+    back to InstallMode.INTERACTIVE at runtime and shows the platform confirmation dialog.
+
+    DELETE_PACKAGES is allowlisted for the future uninstall/rollback path; nothing in the
+    current build calls it.
+-->
+<permissions>
+    <privapp-permissions package="com.lucid.auto.appstore">
+        <permission name="android.permission.INSTALL_PACKAGES" />
+        <permission name="android.permission.DELETE_PACKAGES" />
+    </privapp-permissions>
+</permissions>

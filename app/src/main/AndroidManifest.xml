@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- ============================================================
+         PACKAGE VISIBILITY (Android 11 / API 30+)
+
+         Without this block, PackageManager.getPackageInfo() throws
+         NameNotFoundException for these packages even when they ARE
+         installed, and every row would incorrectly show "Install".
+
+         We deliberately do NOT request QUERY_ALL_PACKAGES: the
+         catalogue is a fixed, known set, so an explicit list is both
+         sufficient and far less policy-sensitive.
+         ============================================================ -->
+    <queries>
+        <package android:name="com.lucid.auto.media" />
+        <package android:name="com.lucid.auto.radio" />
+        <package android:name="com.spotify.music" />
+    </queries>
+
+    <!-- ========== Always required ========== -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- ========== Unprivileged install path (normal APK) ==========
+         REQUEST_INSTALL_PACKAGES  : shows the system "install?" dialog.
+         UPDATE_PACKAGES_WITHOUT_USER_ACTION (API 31+, normal protection):
+             lets this store silently UPDATE apps it originally installed.
+         -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
+
+    <!-- ========== Privileged / system build only ==========
+         These are signature|privileged. They are IGNORED (not granted, no
+         crash) for a normally sideloaded APK, and the installer falls back
+         to the interactive path at runtime.
+
+         To actually obtain them the APK must be placed in
+             /system/priv-app/LucidAppStore/LucidAppStore.apk
+         AND allowlisted via
+             /system/etc/permissions/privapp-permissions-com.lucid.auto.appstore.xml
+         (see system/ in this repo). Without the allowlist file the device
+         refuses to boot the app.
+         -->
+    <uses-permission android:name="android.permission.INSTALL_PACKAGES"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.DELETE_PACKAGES"
+        tools:ignore="ProtectedPermissions" />
+
+    <application
+        android:name=".LucidAppStoreApplication"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.LucidAppStore">
+
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.LucidAppStore">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Receives the PackageInstaller session commit callback. -->
+        <receiver
+            android:name=".data.install.InstallResultReceiver"
+            android:exported="false" />
+
+        <!-- Re-arms the periodic auto-update worker after a reboot,
+             but ONLY when the auto-update flag is enabled. -->
+        <receiver
+            android:name=".update.BootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>
