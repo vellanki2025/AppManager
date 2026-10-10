@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>App update check flow</title>
+<style>
+  :root {
+    --bg: #ffffff; --text: #1f1e1d; --muted: #5f5e5a; --line: #b4b2a9; --box: #f7f6f2; --box-stroke: #888780;
+    --gray-f: #F1EFE8; --gray-s: #5F5E5A; --gray-t: #444441; --gray-u: #5F5E5A;
+    --purple-f: #EEEDFE; --purple-s: #534AB7; --purple-t: #3C3489; --purple-u: #534AB7;
+    --teal-f: #E1F5EE; --teal-s: #0F6E56; --teal-t: #085041; --teal-u: #0F6E56;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1f1e1d; --text: #ece9e0; --muted: #b4b2a9; --line: #5f5e5a; --box: #2c2c2a; --box-stroke: #888780;
+      --gray-f: #444441; --gray-s: #B4B2A9; --gray-t: #D3D1C7; --gray-u: #B4B2A9;
+      --purple-f: #3C3489; --purple-s: #AFA9EC; --purple-t: #CECBF6; --purple-u: #AFA9EC;
+      --teal-f: #085041; --teal-s: #5DCAA5; --teal-t: #9FE1CB; --teal-u: #5DCAA5;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 32px 16px; background: var(--bg); color: var(--text);
+         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.6; }
+  main { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 22px; font-weight: 500; margin: 0 0 4px; }
+  h2 { font-size: 18px; font-weight: 500; margin: 36px 0 8px; }
+  h3 { font-size: 16px; font-weight: 500; margin: 20px 0 6px; }
+  p { margin: 0 0 12px; font-size: 15px; }
+  p.sub { color: var(--muted); margin-bottom: 20px; }
+  svg { width: 100%; height: auto; display: block; }
+  svg text { font-family: inherit; fill: var(--text); }
+  .th { font-size: 14px; font-weight: 500; }
+  .ts { font-size: 12px; fill: var(--muted); }
+  .arr { stroke: var(--muted); stroke-width: 1.5; fill: none; }
+  .life { stroke: var(--line); stroke-width: 0.5; }
+  .box { fill: var(--box); stroke: var(--box-stroke); }
+  .c-gray rect   { fill: var(--gray-f);   stroke: var(--gray-s); }
+  .c-purple rect { fill: var(--purple-f); stroke: var(--purple-s); }
+  .c-teal rect   { fill: var(--teal-f);   stroke: var(--teal-s); }
+  .c-gray .th   { fill: var(--gray-t); }   .c-gray .ts   { fill: var(--gray-u); }
+  .c-purple .th { fill: var(--purple-t); } .c-purple .ts { fill: var(--purple-u); }
+  .c-teal .th   { fill: var(--teal-t); }   .c-teal .ts   { fill: var(--teal-u); }
+  ol, ul { padding-left: 20px; margin: 0 0 12px; font-size: 15px; }
+  li { margin-bottom: 6px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; margin: 0 0 12px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 0.5px solid var(--line); vertical-align: top; }
+  th { font-weight: 500; color: var(--muted); font-size: 13px; }
+  td:first-child { white-space: nowrap; }
+  .legend { font-size: 13px; color: var(--muted); margin-top: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>App update check flow</h1>
+  <p class="sub">Vehicle, Cloud API, and the Versions, Regions and Garage components, including VIN lookup and event history.</p>
+
+  <h2>1. Update check, with event logging</h2>
+  <p>Versions is the master copy for each VIN. It holds the current snapshot (software version plus app versions) and an append-only event history. Steps 2, 9 and 13 write to it.</p>
+
+  <svg viewBox="0 0 680 660" role="img" aria-labelledby="dt1 dd1">
+    <title id="dt1">Sequence diagram of the vehicle app update check with event logging</title>
+    <desc id="dd1">Vehicle checks in with the Cloud API, which saves state in Versions, asks Regions which apps are needed, asks Garage which builds exist, resolves eligible updates, logs the offer in Versions, and returns a manifest. The vehicle installs, reports the result, and the Cloud API logs it in Versions.</desc>
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </marker>
+    </defs>
+
+    <line class="life" x1="80"  y1="68" x2="80"  y2="625"/>
+    <line class="life" x1="210" y1="68" x2="210" y2="625"/>
+    <line class="life" x1="340" y1="68" x2="340" y2="625"/>
+    <line class="life" x1="470" y1="68" x2="470" y2="625"/>
+    <line class="life" x1="600" y1="68" x2="600" y2="625"/>
+
+    <g class="c-gray"><rect x="25" y="20" width="110" height="48" rx="8" stroke-width="0.5"/>
+      <text class="th" x="80" y="37" text-anchor="middle" dominant-baseline="central">Vehicle</text>
+      <text class="ts" x="80" y="55" text-anchor="middle" dominant-baseline="central">Head unit</text></g>
+    <g class="c-purple"><rect x="155" y="20" width="110" height="48" rx="8" stroke-width="0.5"/>
+      <text class="th" x="210" y="37" text-anchor="middle" dominant-baseline="central">Cloud API</text>
+      <text class="ts" x="210" y="55" text-anchor="middle" dominant-baseline="central">Update service</text></g>
+    <g class="c-teal"><rect x="285" y="20" width="110" height="48" rx="8" stroke-width="0.5"/>
+      <text class="th" x="340" y="37" text-anchor="middle" dominant-baseline="central">Versions</text>
+      <text class="ts" x="340" y="55" text-anchor="middle" dominant-baseline="central">State + events</text></g>
+    <g class="c-teal"><rect x="415" y="20" width="110" height="48" rx="8" stroke-width="0.5"/>
+      <text class="th" x="470" y="37" text-anchor="middle" dominant-baseline="central">Regions</text>
+      <text class="ts" x="470" y="55" text-anchor="middle" dominant-baseline="central">Apps per region</text></g>
+    <g class="c-teal"><rect x="545" y="20" width="110" height="48" rx="8" stroke-width="0.5"/>
+      <text class="th" x="600" y="37" text-anchor="middle" dominant-baseline="central">Garage</text>
+      <text class="ts" x="600" y="55" text-anchor="middle" dominant-baseline="central">Release catalog</text></g>
+
+    <line class="arr" x1="80" y1="105" x2="208" y2="105" marker-end="url(#arrow)"/>
+    <text class="ts" x="145" y="96" text-anchor="middle">1. Check-in</text>
+
+    <line class="arr" x1="210" y1="145" x2="338" y2="145" marker-end="url(#arrow)"/>
+    <text class="ts" x="275" y="136" text-anchor="middle">2. Save state</text>
+
+    <line class="arr" x1="340" y1="185" x2="212" y2="185" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+    <text class="ts" x="275" y="176" text-anchor="middle">3. Stored state</text>
+
+    <line class="arr" x1="210" y1="225" x2="468" y2="225" marker-end="url(#arrow)"/>
+    <text class="ts" x="405" y="216" text-anchor="middle">4. Apps needed?</text>
+
+    <line class="arr" x1="470" y1="265" x2="212" y2="265" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+    <text class="ts" x="405" y="256" text-anchor="middle">5. App list</text>
+
+    <line class="arr" x1="210" y1="305" x2="598" y2="305" marker-end="url(#arrow)"/>
+    <text class="ts" x="535" y="296" text-anchor="middle">6. Builds for apps</text>
+
+    <line class="arr" x1="600" y1="345" x2="212" y2="345" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+    <text class="ts" x="535" y="336" text-anchor="middle">7. Builds + ranges</text>
+
+    <rect class="box" x="135" y="372" width="150" height="30" rx="4" stroke-width="0.5"/>
+    <text class="ts" x="210" y="387" text-anchor="middle" dominant-baseline="central">8. Match, pick latest</text>
+
+    <line class="arr" x1="210" y1="435" x2="338" y2="435" marker-end="url(#arrow)"/>
+    <text class="ts" x="275" y="426" text-anchor="middle">9. Log offered</text>
+
+    <line class="arr" x1="210" y1="475" x2="82" y2="475" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+    <text class="ts" x="145" y="466" text-anchor="middle">10. Manifest</text>
+
+    <rect class="box" x="15" y="495" width="130" height="30" rx="4" stroke-width="0.5"/>
+    <text class="ts" x="80" y="510" text-anchor="middle" dominant-baseline="central">11. Download, install</text>
+
+    <line class="arr" x1="80" y1="560" x2="208" y2="560" marker-end="url(#arrow)"/>
+    <text class="ts" x="145" y="551" text-anchor="middle">12. Report result</text>
+
+    <line class="arr" x1="210" y1="600" x2="338" y2="600" marker-end="url(#arrow)"/>
+    <text class="ts" x="275" y="591" text-anchor="middle">13. Log result</text>
+  </svg>
+  <p class="legend">Solid arrows are requests, dashed arrows are responses.</p>
+
+  <h3>What each step carries</h3>
+  <ol>
+    <li><strong>Check-in:</strong> the vehicle sends its VIN, its software (OTA) version and the version of each installed app.</li>
+    <li><strong>Save state / stored state:</strong> Versions updates the snapshot for the VIN and returns the previous one. If the reported software or app versions differ from what was stored, Versions records an event for each change. This also catches updates made outside the flow, such as a dealer reflash.</li>
+    <li><strong>Apps needed / app list:</strong> Regions returns the allow-list of apps for the VIN's region and model. An app not listed is never offered.</li>
+    <li><strong>Builds for apps / builds and ranges:</strong> Garage returns every available release with the minimum and maximum software version it supports.</li>
+    <li><strong>Match, pick latest:</strong> keep releases compatible with the vehicle's current software version and newer than the installed version, then take the highest. A vehicle on OTA 4.0 never sees media 3.3.</li>
+    <li><strong>Log offered:</strong> an "offered" event records exactly what was sent to this VIN and when.</li>
+    <li><strong>Manifest, install, report, log result:</strong> the vehicle installs from the manifest and reports success or failure. The Cloud API records an "installed" or "install failed" event and updates the snapshot.</li>
+  </ol>
+
+  <h2>2. VIN lookup: current versions and history</h2>
+  <p>For a given VIN, an operator tool (support portal, dealer tool or dashboard) gets the current software version and app versions, plus the full history of software updates and app updates. Both come from Versions through the Cloud API.</p>
+
+  <svg viewBox="0 0 680 350" role="img" aria-labelledby="dt2 dd2">
+    <title id="dt2">Sequence diagram of looking up a vehicle by VIN</title>
+    <desc id="dd2">An operator asks the Cloud API for a VIN. The Cloud API reads the current state and the event history from Versions and returns the vehicle with its history.</desc>
+    <defs>
+      <marker id="arrow2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </marker>
+    </defs>
+
+    <line class="life" x1="110" y1="68" x2="110" y2="330"/>
+    <line class="life" x1="340" y1="68" x2="340" y2="330"/>
+    <line class="life" x1="570" y1="68" x2="570" y2="330"/>
+
+    <g class="c-gray"><rect x="40" y="20" width="140" height="48" rx="8" stroke-width="0.5"/>
+      <text class="th" x="110" y="37" text-anchor="middle" dominant-baseline="central">Operator</text>
+      <text class="ts" x="110" y="55" text-anchor="middle" dominant-baseline="central">Portal or dealer tool</text></g>
+    <g class="c-purple"><rect x="270" y="20" width="140" height="48" rx="8" stroke-width="0.5"/>
+      <text class="th" x="340" y="37" text-anchor="middle" dominant-baseline="central">Cloud API</text>
+      <text class="ts" x="340" y="55" text-anchor="middle" dominant-baseline="central">Update service</text></g>
+    <g class="c-teal"><rect x="500" y="20" width="140" height="48" rx="8" stroke-width="0.5"/>
+      <text class="th" x="570" y="37" text-anchor="middle" dominant-baseline="central">Versions</text>
+      <text class="ts" x="570" y="55" text-anchor="middle" dominant-baseline="central">State + events</text></g>
+
+    <line class="arr" x1="110" y1="105" x2="338" y2="105" marker-end="url(#arrow2)"/>
+    <text class="ts" x="225" y="96" text-anchor="middle">1. Lookup by VIN</text>
+
+    <line class="arr" x1="340" y1="145" x2="568" y2="145" marker-end="url(#arrow2)"/>
+    <text class="ts" x="455" y="136" text-anchor="middle">2. Get state</text>
+
+    <line class="arr" x1="570" y1="185" x2="342" y2="185" stroke-dasharray="5 4" marker-end="url(#arrow2)"/>
+    <text class="ts" x="455" y="176" text-anchor="middle">3. OTA + app versions</text>
+
+    <line class="arr" x1="340" y1="225" x2="568" y2="225" marker-end="url(#arrow2)"/>
+    <text class="ts" x="455" y="216" text-anchor="middle">4. Get history</text>
+
+    <line class="arr" x1="570" y1="265" x2="342" y2="265" stroke-dasharray="5 4" marker-end="url(#arrow2)"/>
+    <text class="ts" x="455" y="256" text-anchor="middle">5. Events, newest first</text>
+
+    <line class="arr" x1="340" y1="305" x2="112" y2="305" stroke-dasharray="5 4" marker-end="url(#arrow2)"/>
+    <text class="ts" x="225" y="296" text-anchor="middle">6. Vehicle + history</text>
+  </svg>
+  <p class="legend">Steps 2 to 5 can run in parallel. Regions and Garage are only needed if you also want an "update available" flag in the result.</p>
+
+  <h3>What the lookup returns</h3>
+  <ul>
+    <li>The vehicle: VIN, region, software version and the installed version of each app.</li>
+    <li>When the vehicle last checked in.</li>
+    <li>The history for that VIN, newest first: each software update and app update offered, installed or failed, with the time, the version before and after, and where the information came from.</li>
+  </ul>
+
+  <h2>3. What Versions stores</h2>
+  <h3>Current snapshot (one record per VIN)</h3>
+  <table>
+    <tr><th>Item</th><th>Notes</th></tr>
+    <tr><td>VIN</td><td>Unique key for the vehicle.</td></tr>
+    <tr><td>Region and model</td><td>Used to ask Regions which apps apply.</td></tr>
+    <tr><td>Software version</td><td>Last reported OTA version.</td></tr>
+    <tr><td>App versions</td><td>Installed version of each app, as last reported.</td></tr>
+    <tr><td>Last seen</td><td>Time of the last check-in.</td></tr>
+  </table>
+
+  <h3>Event history (append-only, many per VIN)</h3>
+  <table>
+    <tr><th>Item</th><th>Notes</th></tr>
+    <tr><td>VIN and time</td><td>Indexed together so the history for one VIN is a single ordered read.</td></tr>
+    <tr><td>Event type</td><td>Software update offered or installed, app update offered or installed, install failed, rollback.</td></tr>
+    <tr><td>Target</td><td>The software, or the name of the app.</td></tr>
+    <tr><td>Version before and after</td><td>What changed.</td></tr>
+    <tr><td>Source</td><td>Cloud (an offer), vehicle (a reported result), or detected (found by comparing a check-in with the stored state, such as a dealer reflash).</td></tr>
+  </table>
+  <p>Events are never edited or deleted. A correction is a new event, so the history stays trustworthy for audits and support cases.</p>
+</main>
+</body>
+</html>
