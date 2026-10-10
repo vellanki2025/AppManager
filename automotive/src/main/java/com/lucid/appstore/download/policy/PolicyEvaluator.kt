@@ -43,7 +43,7 @@ class DefaultPolicyEvaluator(
         val allowed = when (cls) {
             NetworkClass.UNMETERED_WIFI -> true
             NetworkClass.CELLULAR -> c.networkMode == NetworkMode.WIFI_OR_CELLULAR
-            NetworkClass.METERED_WIFI, NetworkClass.BLUETOOTH_TETHER -> c.allowTethered
+            NetworkClass.METERED_WIFI, NetworkClass.BLUETOOTH_TETHER,
             NetworkClass.NONE, NetworkClass.ETHERNET, NetworkClass.OTHER -> false
         }
         return when {

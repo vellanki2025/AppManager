@@ -20,9 +20,8 @@ data class Progress(val downloaded: Long, val total: Long?)
 /** User-adjustable policy and schedule settings. Persisted by [com.lucid.appstore.download.config.ConfigRepository]. */
 data class Config(
     val scheduleTime: LocalTime = LocalTime.of(2, 0),
+    /** Tethered networks (metered Wi-Fi hotspot, Bluetooth) are always blocked. */
     val networkMode: NetworkMode = NetworkMode.WIFI_ONLY,
-    /** Allow metered Wi-Fi (phone hotspot) and Bluetooth tethering. */
-    val allowTethered: Boolean = false,
     /** PARKED additionally requires the parking brake to be engaged. */
     val requireParkingBrake: Boolean = false,
     val batteryThresholdPercent: Int = 20,

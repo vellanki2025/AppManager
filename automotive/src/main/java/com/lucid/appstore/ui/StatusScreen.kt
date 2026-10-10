@@ -33,7 +33,7 @@ import com.lucid.appstore.DownloadConfig
 import com.lucid.appstore.DownloadStatus
 import java.time.LocalTime
 
-private val NETWORK_MODES = listOf("WIFI_ONLY", "WIFI_OR_CELLULAR")
+private val NETWORK_MODES = listOf("WIFI_ONLY" to "Wi-Fi only", "WIFI_OR_CELLULAR" to "Wi-Fi or cellular")
 
 /** Developer status screen, fed entirely by the AIDL service through [StatusViewModel]. */
 @Composable
@@ -43,66 +43,92 @@ fun StatusScreen(vm: StatusViewModel) {
     val events by vm.events.collectAsStateWithLifecycle()
 
     LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { StateCard(status, onRun = vm::runNow, onCancel = vm::cancel, onEnabled = vm::setEnabled) }
-        item { config?.let { ConfigCard(it, vm::updateConfig) } ?: Text("Connecting to download service…") }
+        item { RunCard(status, config, vm::updateConfig, onRun = vm::runNow, onCancel = vm::cancel, onEnabled = vm::setEnabled) }
+        item { NetworkCard(status, config, vm::updateConfig) }
+        item { DrivingCard(status, config, vm::updateConfig) }
+        item { BatteryCard(status, config, vm::updateConfig) }
         item { Text("Events", style = MaterialTheme.typography.titleMedium) }
         items(events.asReversed()) { Text(it, style = MaterialTheme.typography.bodySmall) }
     }
 }
 
+private typealias Update = ((DownloadConfig) -> DownloadConfig) -> Unit
+
 @Composable
-private fun StateCard(s: DownloadStatus?, onRun: () -> Unit, onCancel: () -> Unit, onEnabled: (Boolean) -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            LabeledSwitch("Download service enabled (feature flag)", s?.enabled ?: true, onEnabled)
-            Text("Run: ${s?.phase ?: "-"}" + (s?.waitReason?.let { " ($it)" } ?: ""))
-            if (s != null && s.totalBytes >= 0) Text("Progress: ${s.downloadedBytes / 1_048_576} / ${s.totalBytes / 1_048_576} MB")
-            Text(
-                if (s == null || s.driving.isEmpty()) "Vehicle: waiting for signals"
-                else "Vehicle: ${s.driving}  battery ${s.batteryPercent}%${if (s.charging) " charging" else ""}  net ${s.networkClass}${if (s.networkValidated) "" else " (unvalidated)"}",
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onRun, enabled = s?.enabled ?: false) { Text("Run now") }
-                OutlinedButton(onClick = onCancel) { Text("Cancel run") }
-            }
+private fun RunCard(s: DownloadStatus?, c: DownloadConfig?, update: Update, onRun: () -> Unit, onCancel: () -> Unit, onEnabled: (Boolean) -> Unit) {
+    var time by remember(c?.scheduleTime) { mutableStateOf(c?.scheduleTime ?: "") }
+    Section("Run") {
+        LabeledSwitch("Download service enabled (feature flag)", s?.enabled ?: true, onChange = onEnabled)
+        Text("State: ${s?.phase ?: "-"}" + (s?.waitReason?.let { " (waiting: $it)" } ?: ""))
+        if (s != null && s.totalBytes >= 0) Text("Progress: ${s.downloadedBytes / 1_048_576} / ${s.totalBytes / 1_048_576} MB")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(time, { time = it }, label = { Text("Daily schedule (HH:mm)") }, singleLine = true, enabled = c != null)
+            Spacer(Modifier.width(8.dp))
+            Button(onClick = { runCatching { LocalTime.parse(time) }.onSuccess { t -> update { it.copy(scheduleTime = t.toString()) } } }, enabled = c != null) { Text("Apply") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onRun, enabled = s?.enabled ?: false) { Text("Run now") }
+            OutlinedButton(onClick = onCancel) { Text("Cancel run") }
         }
     }
 }
 
 @Composable
-private fun ConfigCard(config: DownloadConfig, update: ((DownloadConfig) -> DownloadConfig) -> Unit) {
-    var time by remember(config.scheduleTime) { mutableStateOf(config.scheduleTime) }
-    var threshold by remember(config.batteryThresholdPercent) { mutableFloatStateOf(config.batteryThresholdPercent.toFloat()) }
+private fun NetworkCard(s: DownloadStatus?, c: DownloadConfig?, update: Update) {
+    Section("Network") {
+        Text("Current: " + (s?.networkClass?.ifEmpty { null }?.let { it + if (s.networkValidated) "" else " (no internet)" } ?: "unknown"))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            NETWORK_MODES.forEach { (mode, label) ->
+                FilterChip(selected = c?.networkMode == mode, onClick = { update { it.copy(networkMode = mode) } }, label = { Text(label) }, enabled = c != null)
+            }
+        }
+        Text("Hotspots and Bluetooth tethering are never used.", style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun DrivingCard(s: DownloadStatus?, c: DownloadConfig?, update: Update) {
+    Section("Driving state") {
+        Text("Current: " + (s?.driving?.ifEmpty { null } ?: "waiting for signals"))
+        Text("Download runs only while PARKED (gear in Park, speed zero).", style = MaterialTheme.typography.bodySmall)
+        LabeledSwitch("Also require parking brake", c?.requireParkingBrake ?: false, enabled = c != null) { v -> update { it.copy(requireParkingBrake = v) } }
+    }
+}
+
+@Composable
+private fun BatteryCard(s: DownloadStatus?, c: DownloadConfig?, update: Update) {
+    var threshold by remember(c?.batteryThresholdPercent) { mutableFloatStateOf((c?.batteryThresholdPercent ?: 20).toFloat()) }
+    Section("Battery") {
+        Text(
+            if (s == null || s.batteryPercent < 0) "Current: waiting for signals"
+            else "Current: ${s.batteryPercent}%" + if (s.charging) ", charging" else ", not charging",
+        )
+        Text("Threshold: ${threshold.toInt()}%  (resume after a battery wait at ${threshold.toInt() + (c?.batteryResumeMarginPercent ?: 5)}%)")
+        Slider(
+            value = threshold,
+            onValueChange = { threshold = it },
+            onValueChangeFinished = { update { it.copy(batteryThresholdPercent = threshold.toInt()) } },
+            valueRange = 5f..80f,
+            enabled = c != null,
+        )
+        Text("Charging always allows the download, even below the threshold.", style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun Section(title: String, content: @Composable () -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Config", style = MaterialTheme.typography.titleMedium)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(time, { time = it }, label = { Text("Schedule (HH:mm)") }, singleLine = true)
-                Spacer(Modifier.width(8.dp))
-                Button(onClick = { runCatching { LocalTime.parse(time) }.onSuccess { t -> update { it.copy(scheduleTime = t.toString()) } } }) { Text("Apply") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NETWORK_MODES.forEach { mode ->
-                    FilterChip(selected = config.networkMode == mode, onClick = { update { it.copy(networkMode = mode) } }, label = { Text(mode) })
-                }
-            }
-            LabeledSwitch("Allow tethering (hotspot, Bluetooth)", config.allowTethered) { v -> update { it.copy(allowTethered = v) } }
-            LabeledSwitch("Require parking brake", config.requireParkingBrake) { v -> update { it.copy(requireParkingBrake = v) } }
-            Text("Battery threshold: ${threshold.toInt()}% (resume at +${config.batteryResumeMarginPercent})")
-            Slider(
-                value = threshold,
-                onValueChange = { threshold = it },
-                onValueChangeFinished = { update { it.copy(batteryThresholdPercent = threshold.toInt()) } },
-                valueRange = 5f..80f,
-            )
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            content()
         }
     }
 }
 
 @Composable
-private fun LabeledSwitch(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+private fun LabeledSwitch(label: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Text(label)
-        Switch(checked = checked, onCheckedChange = onChange)
+        Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
     }
 }

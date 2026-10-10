@@ -38,7 +38,8 @@ emit fail-safe values, so the gate blocks on `DRIVING`. Add the library's permis
 
 1. `Scheduler.ensureScheduled()` arms the unique `daily_trigger` work at the configured time (default 02:00).
 2. `ScheduleTriggerWorker` fires, enqueues `download_run` if idle (else `SCHEDULE_COALESCED`), re-arms tomorrow.
-3. `DownloadRunWorker` calls `RunCoordinator.execute()`: policy gate (driving, battery, network), then
+3. `DownloadRunWorker` calls `RunCoordinator.execute()`: policy gate (driving, battery, network; tethered
+   networks are always blocked), then
    `setForeground(dataSync)` and the engine. Mid-run violations cancel the engine, persist `WAITING(reason)`
    and end the worker. A system stop is handled in a `NonCancellable` block.
 4. While `WAITING`, `WaitingWatcher` (in process) applies the 10 s stability window and enqueues the run;
