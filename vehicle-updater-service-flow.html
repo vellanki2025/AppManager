@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lucid App Updates - Vehicle updater service (Android)</title>
+<style>
+:root{--bg:#ffffff;--fg:#1b2430;--muted:#5b6675;--line:#d5dbe3;--card:#f6f8fb;--accent:#2457c5;--accentbg:#e8eefb;--ok:#1a7f4b;--okbg:#e6f4ec;--err:#b3261e;--errbg:#fbeae8;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14181f;--fg:#e8ecf1;--muted:#9aa5b4;--line:#2d3644;--card:#1b222c;--accent:#7aa2f7;--accentbg:#1e2a44;--ok:#4cc38a;--okbg:#17302a;--err:#f2877f;--errbg:#3a1f1f}}
+:root[data-theme="dark"]{--bg:#14181f;--fg:#e8ecf1;--muted:#9aa5b4;--line:#2d3644;--card:#1b222c;--accent:#7aa2f7;--accentbg:#1e2a44;--ok:#4cc38a;--okbg:#17302a;--err:#f2877f;--errbg:#3a1f1f}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;line-height:1.5}
+main{max-width:1240px;margin:0 auto;padding:24px 16px 56px}
+h1{font-size:1.5rem;margin:0 0 4px;letter-spacing:-.01em}
+h2{font-size:1.15rem;margin:0 0 6px}
+h3{font-size:1rem;margin:0 0 4px}
+p{margin:0 0 12px}
+.sub{color:var(--muted);margin-bottom:20px;max-width:80ch}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;border-bottom:1px solid var(--line);margin-bottom:20px}
+.tabs button{font:inherit;background:none;color:var(--muted);border:0;border-bottom:3px solid transparent;padding:10px 14px;cursor:pointer}
+.tabs button[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--accent);font-weight:600}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.panel{display:none}.panel.on{display:block}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--bg)}
+.scroll svg{display:block;max-width:none}
+svg text{font-family:inherit}
+.b{fill:var(--card);stroke:var(--line);stroke-width:1.2}
+.b.acc{fill:var(--accentbg);stroke:var(--accent)}
+.t1{font-size:13px;font-weight:600;fill:var(--fg)}
+.t2{font-size:12px;fill:var(--muted)}
+.t3{font-size:12px;fill:var(--fg)}
+.t4{font-size:12.5px;fill:var(--fg)}
+.ln{stroke:var(--muted);stroke-width:1.4;fill:none}
+.ln.d{stroke-dasharray:5 4}
+.mk{fill:var(--muted)}
+.life{stroke:var(--line);stroke-dasharray:4 4}
+.note{fill:var(--accentbg);stroke:var(--accent);stroke-width:1}
+.cap{color:var(--muted);font-size:.92rem;margin:0 0 10px;max-width:85ch}
+.sg{margin-bottom:18px}
+.sg .gl{display:block;font-size:1rem;font-weight:600;color:var(--fg);margin:0 0 8px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+.sg .opts{display:flex;flex-wrap:wrap;gap:8px}
+.sg button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:6px;padding:6px 12px;cursor:pointer}
+.sg button[aria-selected="true"]{border-color:var(--accent);background:var(--accentbg);font-weight:600}
+#subtabs{margin-bottom:16px}
+.events{margin:12px 0 0;padding-left:0;list-style:none;max-width:105ch}
+.events li{margin-bottom:6px}
+.events li.n{color:var(--muted);font-style:italic}
+.events .r{color:var(--muted)}
+table{border-collapse:collapse;width:100%;font-size:.93rem;min-width:640px}
+th,td{text-align:left;border-bottom:1px solid var(--line);padding:8px 10px;vertical-align:top}
+th{font-weight:600;background:var(--card)}
+pre{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9rem;max-width:560px}
+code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
+.assume{margin-top:28px;border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+.assume ul{margin:6px 0 0;padding-left:18px}
+.assume li{margin-bottom:4px}
+.tw{overflow-x:auto}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+  <h1>Vehicle updater service (Android)</h1>
+  <p class="sub">Sequence diagrams, rules, in-app experience and lifecycle events for the on-vehicle update service in Lucid App Updates. Two cases: the 1 AM automatic update and Update now. Vehicle side only; the Cloud API appears just as the boundary.</p>
+
+  <div class="tabs" role="tablist" id="tabs">
+    <button role="tab" aria-selected="true" data-tab="seq">Sequence diagrams</button>
+    <button role="tab" aria-selected="false" data-tab="aiu">Parked or driving</button>
+    <button role="tab" aria-selected="false" data-tab="rules">Rules</button>
+    <button role="tab" aria-selected="false" data-tab="events">Events</button>
+  </div>
+
+  <section class="panel on" id="p-seq">
+    <h2>Sequence diagrams</h2>
+    <p class="sub">Numbers in each diagram match the list under it. Dashed arrows are returns or callbacks. Shaded boxes are notes.</p>
+    <div id="subtabs" role="tablist"></div>
+    <div id="seqbox"></div>
+  </section>
+
+  <section class="panel" id="p-aiu">
+    <h2>What the user sees when an app is updated</h2>
+    <p class="sub">The service decides only from vehicle state: a fixed baseline (driving: never install; parked: install, with a message on the HMI) plus per-app install rules from the manifest, such as "not in egress mode". It does not ask individual apps, or the system, what an app is doing.</p>
+    <h3>If the car switches to driving during an update</h3>
+    <div class="tw"><table id="drvtbl"></table></div>
+    <h3 style="margin-top:22px">What the user sees</h3>
+    <div class="tw"><table id="aiutbl"></table></div>
+    <div style="margin-top:22px"></div>
+    <div id="aiu"></div>
+  </section>
+
+  <section class="panel" id="p-rules">
+    <h2>Rules for the two cases</h2>
+    <p class="sub">One decision table for the 1 AM automatic update and Update now. Numbers are placeholders to confirm with the vehicle and platform teams.</p>
+    <div class="tw"><table id="rtbl"></table></div>
+    <h3 style="margin-top:20px">Hold reasons</h3>
+    <p>When a check fails, the update is HELD with one reason and resumes when the checks pass again: <code>driving</code>, <code>install_rule</code> (with the rule name, for example egress_mode), <code>vehicle_active</code>, <code>low_battery</code>, <code>poor_network</code>, <code>outside_window</code>, <code>low_storage</code>. The HMI shows the reason in plain words.</p>
+    <h3 style="margin-top:20px">Install rules in the manifest</h3>
+    <p class="cap">The Release Manager sets the rules per app. They come in the signed <code>/v1/manifest</code> response, are saved with the update on the vehicle, and are checked at install time. Downloads are never gated by them. Rules can only add limits: the baseline (never while driving, battery minimum) always applies and cannot be loosened.</p>
+    <pre>{
+  "appId": "com.lucid.navigation",
+  "versionCode": 40100,
+  "installRules": {
+    "blockedModes": ["egress"],
+    "ignition": "any"
+  }
+}</pre>
+  </section>
+
+  <section class="panel" id="p-events">
+    <h2>Lifecycle events sent to Analytics</h2>
+    <p class="sub">The service saves each event first, then sends it in a batch. Event names and fields are proposed and should be aligned with the Analytics schema.</p>
+    <div class="tw"><table id="etbl"></table></div>
+    <h3 style="margin-top:20px">Fields on every event</h3>
+    <p><code>eventId</code> (unique, for de-duplication), <code>appId</code>, <code>releaseId</code>, <code>fromVersionCode</code>, <code>toVersionCode</code>, <code>trigger</code> (auto_night or update_now), <code>profileType</code> (primary or secondary, Update now only), <code>network</code> (wifi, cellular or other), <code>attempt</code>, <code>reason</code> (failures), <code>heldReason</code> (holds), <code>ruleName</code> (install_rule holds), <code>timestamp</code>. The vehicle is identified by its device certificate. No profile name or ID is sent.</p>
+  </section>
+
+  <div class="assume">
+    <h3>Assumptions to confirm</h3>
+    <ul>
+      <li>Egress mode: I treated it as a vehicle mode the updater can read, reported by a vehicle signal. Please confirm what it is and which signal reports it. Other blocked modes can use the same rule.</li>
+      <li>Downloads can happen any time: automatic downloads need WiFi, battery and storage, but not the 1 AM window or a parked vehicle. This changes the earlier rule where an automatic download paused when driving started. Only the install is gated.</li>
+      <li>Manifest install rules can only add limits. The driving rule and battery minimum cannot be loosened by a manifest.</li>
+      <li>When space is short, an app that is already downloaded is installed first (if its rules allow) and its APK deleted. An APK that has not been installed is never deleted to make space, except when a newer version of the same app replaces it.</li>
+      <li>Vehicle state is the only gate for installs, apart from the manifest rules: driving is a strict no, parked is allowed. The service never asks apps what they are doing, so Navigation or music can stop when an update installs while parked. Tapping Update now counts as the user's consent, and the message appears when the install starts, with no countdown.</li>
+      <li>Apps restart when updated, so app teams should save their own state.</li>
+      <li>All numbers are placeholders: window 1 to 5 AM local time, auto needs WiFi of at least 2 Mbps, auto needs HV battery of at least 30% or charging, Update now needs at least 10% to download and 20% or charging to install, 12V minimum from the vehicle power team, free space of 2x the APK size, stall timeout 60 s, Park debounce 10 s.</li>
+      <li>Can the head unit wake at 1 AM (for example Garage Mode on Android Automotive)? If not, the automatic update runs in the first parked period after 1 AM instead.</li>
+      <li>Updates are per vehicle, not per profile. The service runs in the system user. Primary and secondary profiles can use Update now; guest is view-only.</li>
+      <li>Automatic downloads need WiFi, battery and storage. Automatic installs also need the 1 AM window, a parked and idle vehicle, and the app's install rules.</li>
+    </ul>
+  </div>
+</main>
+
+<script>
+(function(){
+  function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  function wrap(t,max){
+    var w=String(t).split(' '),L=[],c='';
+    for(var i=0;i<w.length;i++){
+      var x=w[i];
+      if((c+' '+x).trim().length>max && c){L.push(c);c=x;}else{c=(c+' '+x).trim();}
+    }
+    if(c)L.push(c);
+    return L;
+  }
+  function defs(id){
+    return '<defs><marker id="a'+id+'" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk" d="M0 0L10 5L0 10z"/></marker></defs>';
+  }
+  function table(el,head,rows,codeCol){
+    var t='<tr>'+head.map(function(h){return '<th>'+esc(h)+'</th>';}).join('')+'</tr>';
+    rows.forEach(function(r){
+      t+='<tr>'+r.map(function(c,i){return '<td>'+(i===codeCol?'<code>'+esc(c)+'</code>':esc(c))+'</td>';}).join('')+'</tr>';
+    });
+    document.getElementById(el).innerHTML=t;
+  }
+
+  /* ---------- Participants ---------- */
+  var PT={
+    os:{n:'Android OS',s:'boot / connectivity'},
+    sched:{n:'Scheduler',s:'1 AM alarm or wake'},
+    hmi:{n:'HMI app',s:'vehicle UI'},
+    svc:{n:'Updater service',s:'orchestrator'},
+    pol:{n:'Policy engine',s:'window, network, battery'},
+    veh:{n:'Vehicle signals',s:'power, gear, battery'},
+    net:{n:'Connectivity',s:'Android network stack'},
+    db:{n:'Local store',s:'Room / SQLite'},
+    cloud:{n:'Cloud API',s:'boundary only'},
+    dl:{n:'Download manager',s:'foreground service'},
+    pm:{n:'PackageManager',s:'Android framework'},
+    pi:{n:'PackageInstaller',s:'Android framework'},
+    trig:{n:'System trigger',s:'boot, WiFi, timer'}
+  };
+
+  /* ---------- Sequence data ---------- */
+  var SEQ=[
+    {tab:'1 Startup and recovery',title:'Service startup and crash recovery',
+     blurb:'After a reboot or crash the service reloads its saved state, checks what really got installed, re-checks held updates, and sends any events that were still queued.',
+     parts:['os','svc','db','pm','cloud'],
+     msgs:[
+      {f:'os',t:'svc',x:'BOOT_COMPLETED: start the service'},
+      {f:'svc',t:'db',x:'Load update records, settings and event queue'},
+      {f:'db',t:'svc',x:'Records, including any DOWNLOADING, INSTALLING or HELD',r:1},
+      {f:'svc',t:'pm',x:'getPackageInfo(appId): installed versionCode'},
+      {f:'pm',t:'svc',x:'versionCode',r:1},
+      {f:'svc',t:'svc',x:'INSTALLING and versionCode equals target: mark INSTALLED. Otherwise retry the install.'},
+      {f:'svc',t:'svc',x:'DOWNLOADING: resume if the partial file is valid, else restart. HELD: run the checks again.'},
+      {f:'svc',t:'cloud',x:'POST queued events (batch)'},
+      {f:'cloud',t:'svc',x:'Accepted: clear sent events from the queue',r:1},
+      {note:'The periodic check and the 1 AM window are scheduled again.',a:'os',b:'cloud'}
+     ]},
+    {tab:'2 Check for updates',title:'Check for updates',
+     blurb:'Only apps already installed are considered. Anything not newer than what is installed is dropped. A check can run on any network. Downloading is a separate decision.',
+     parts:['trig','svc','pol','db','cloud'],
+     msgs:[
+      {f:'trig',t:'svc',x:'Boot, WiFi connected or periodic timer'},
+      {f:'svc',t:'db',x:'Load settings, last check time, installed apps and versionCodes'},
+      {f:'db',t:'svc',x:'Settings and installed apps',r:1},
+      {f:'svc',t:'pol',x:'Is a check due?'},
+      {f:'pol',t:'svc',x:'Yes: network up and interval elapsed',r:1},
+      {f:'svc',t:'cloud',x:'GET /v1/manifest (mTLS, installed versionCodes)'},
+      {f:'cloud',t:'svc',x:'Signed manifest: update list per app (versionName, versionCode, size, installRules)',r:1},
+      {f:'svc',t:'svc',x:'Verify manifest signature. Drop apps not installed and versionCode not higher.'},
+      {f:'svc',t:'db',x:'Save updates as AVAILABLE with their installRules; queue event update_available'},
+      {note:'Automatic: the download starts whenever the checks pass; the install waits for the 1 AM window (diagram 3). Update now is always available from the HMI (diagram 4).',a:'trig',b:'cloud'}
+     ]},
+    {tab:'3 Auto update',title:'Automatic update: download any time, install at 1 AM',
+     blurb:'Downloads are not tied to the time of day or to vehicle state. Only the install is gated: the 1 AM window, a parked and idle vehicle, and the app installRules from the manifest.',
+     parts:['sched','svc','veh','pol','cloud','dl','pi'],colW:185,
+     msgs:[
+      {note:'Phase 1: download (any time)'},
+      {f:'svc',t:'pol',x:'Auto ON, WiFi validated and not metered, battery above floor, enough storage?'},
+      {f:'pol',t:'svc',x:'Yes',r:1},
+      {f:'svc',t:'cloud',x:'GET /v1/manifestapks (appId, versionCode)'},
+      {f:'cloud',t:'svc',x:'Signed URL, SHA-256, size',r:1},
+      {f:'svc',t:'dl',x:'Download in the background (resume with Range)'},
+      {f:'dl',t:'svc',x:'APK in staging folder',r:1},
+      {f:'svc',t:'svc',x:'Verify size, SHA-256, signing cert, versionCode. State READY, waiting for the install window.'},
+      {note:'Phase 2: install (1 AM window)'},
+      {f:'sched',t:'svc',x:'1:00 AM: window opens (alarm, or garage-mode wake)'},
+      {f:'svc',t:'veh',x:'Read ignition, gear, vehicle mode, battery, charging'},
+      {f:'veh',t:'svc',x:'Parked, ignition off, HV 64%, 12V OK',r:1},
+      {f:'svc',t:'pol',x:'Install allowed? Baseline (parked, battery) plus the app installRules'},
+      {f:'pol',t:'svc',x:'Yes, for the first READY app',r:1},
+      {f:'svc',t:'pi',x:'Commit install session (no user action)'},
+      {f:'pi',t:'svc',x:'SUCCESS',r:1},
+      {f:'svc',t:'svc',x:'Save INSTALLED, delete the staged APK, take the next READY app. Stop when the window closes at 5 AM.'},
+      {f:'svc',t:'cloud',x:'Send lifecycle events (batch)'},
+      {note:'No HMI message at night. At the next ignition-on the HMI shows one line: "Media updated to 4.1.0".'}
+     ]},
+    {tab:'4 Update now',title:'Update now (user taps Update now)',
+     blurb:'Pre-flight checks run first. Download can start in most conditions; the install has stricter rules. Any primary or secondary profile can start it, and it updates the whole vehicle.',
+     parts:['hmi','svc','veh','pol','cloud','dl','pi'],colW:185,
+     msgs:[
+      {f:'hmi',t:'svc',x:'updateNow(appId) (manual)'},
+      {f:'svc',t:'svc',x:'Caller check: the HMI app, from a primary or secondary profile. The service runs in the system user, so the update applies to the whole vehicle.'},
+      {f:'svc',t:'veh',x:'Read gear, battery, charging'},
+      {f:'veh',t:'svc',x:'Parked, HV 64%',r:1},
+      {f:'svc',t:'pol',x:'Pre-flight: network, battery, storage, driving'},
+      {f:'pol',t:'svc',x:'Download OK. Install OK now.',r:1},
+      {f:'svc',t:'hmi',x:'onStateChanged(DOWNLOADING)',r:1},
+      {f:'svc',t:'cloud',x:'GET /v1/manifestapks'},
+      {f:'cloud',t:'svc',x:'URL, SHA-256, size',r:1},
+      {f:'svc',t:'dl',x:'Download (any validated network)'},
+      {f:'dl',t:'svc',x:'Progress, then complete',r:1},
+      {f:'svc',t:'hmi',x:'onProgress(appId, percent)',r:1},
+      {f:'svc',t:'svc',x:'Verify. Read the gear and mode again: install only if parked and the app installRules allow it.'},
+      {f:'svc',t:'hmi',x:'onStateChanged(INSTALLING): HMI shows "Updating Media. It will restart."',r:1},
+      {f:'svc',t:'pi',x:'Commit install session'},
+      {f:'pi',t:'svc',x:'SUCCESS',r:1},
+      {f:'svc',t:'hmi',x:'onStateChanged(INSTALLED)',r:1},
+      {f:'svc',t:'cloud',x:'Send lifecycle events (batch)'},
+      {note:'If a check fails, the update is HELD with a reason (driving, install rule, low battery, poor network) and the HMI says why. The diagrams under Conditions that change show each case.',a:'hmi',b:'pi'}
+     ]},
+    {tab:'5 Driving: auto update',title:'The car is driven during an automatic update',
+     blurb:'Downloads are not gated by vehicle state, so they carry on. Nothing installs while driving, and a commit that has already started is allowed to finish.',
+     parts:['veh','svc','dl','db','pi','hmi'],
+     msgs:[
+      {note:'Case A: driving starts while an update is downloading'},
+      {f:'veh',t:'svc',x:'Ignition on, then gear to Drive'},
+      {f:'svc',t:'dl',x:'Keep downloading (not tied to vehicle state)'},
+      {note:'Case B: driving starts during the 1 AM window, before the install'},
+      {f:'svc',t:'veh',x:'Read the gear just before the install'},
+      {f:'veh',t:'svc',x:'Drive',r:1},
+      {f:'svc',t:'db',x:'State HELD (driving); queue update_held. Nothing installs.'},
+      {note:'No HMI message. The install is tried again in the next 1 AM window.'},
+      {note:'Case C: the car is started while the install commit is running'},
+      {f:'svc',t:'pi',x:'Commit install session (checks passed, car parked)'},
+      {f:'veh',t:'svc',x:'Ignition on during the commit'},
+      {f:'svc',t:'hmi',x:'onStateChanged(INSTALLING)',r:1},
+      {f:'pi',t:'svc',x:'SUCCESS',r:1},
+      {f:'svc',t:'db',x:'State INSTALLED; save the new versionCode; queue install_success'},
+      {f:'svc',t:'hmi',x:'onStateChanged(INSTALLED)',r:1},
+      {note:'HMI: "Updating Media. It will restart." until the install finishes, then "Media updated to 4.1.0". The commit is never stopped. It takes seconds and finishes safely.'}
+     ]},
+    {tab:'6 Driving: Update now',title:'The user starts driving during Update now',
+     blurb:'Rule: no install while driving, with no exceptions. The download may continue because the user asked for the update. The install waits for Park.',
+     parts:['hmi','svc','veh','dl','pi'],
+     msgs:[
+      {note:'If the user taps Update now while already driving, the HMI offers "Download now, install when parked".',a:'hmi',b:'pi'},
+      {f:'hmi',t:'svc',x:'updateNow(appId)'},
+      {f:'svc',t:'dl',x:'Start download'},
+      {note:'Case A: driving starts during the download',a:'hmi',b:'pi'},
+      {f:'veh',t:'svc',x:'Gear changes to Drive'},
+      {f:'svc',t:'svc',x:'Keep downloading. Only the install is held while driving.'},
+      {f:'dl',t:'svc',x:'Download complete',r:1},
+      {f:'svc',t:'svc',x:'Verify. State READY but HELD (driving); queue update_held.'},
+      {f:'svc',t:'hmi',x:'onStateChanged(HELD, driving)',r:1},
+      {note:'HMI while driving: one glance-only line, "Downloaded. Installs when you park." No buttons that need attention.',a:'hmi',b:'svc'},
+      {note:'Case B: driving starts again at the last moment before the install',a:'hmi',b:'pi'},
+      {f:'veh',t:'svc',x:'Gear in Park for 10 seconds'},
+      {f:'svc',t:'svc',x:'Run the checks again: battery, network, installRules. Queue update_resumed.'},
+      {f:'svc',t:'veh',x:'Read the gear just before the install'},
+      {f:'veh',t:'svc',x:'Drive',r:1},
+      {f:'svc',t:'hmi',x:'onStateChanged(HELD, driving)',r:1},
+      {note:'Back to waiting for Park. Nothing installs.',a:'hmi',b:'svc'},
+      {note:'Case C: driving starts while the install commit is running',a:'hmi',b:'pi'},
+      {f:'veh',t:'svc',x:'Gear in Park for 10 seconds again; checks pass'},
+      {f:'svc',t:'hmi',x:'onStateChanged(INSTALLING): HMI shows "Updating Media. It will restart."',r:1},
+      {f:'svc',t:'pi',x:'Commit install session'},
+      {f:'veh',t:'svc',x:'Gear changes to Drive during the commit'},
+      {f:'pi',t:'svc',x:'SUCCESS',r:1},
+      {f:'svc',t:'hmi',x:'onStateChanged(INSTALLED)',r:1},
+      {note:'The commit is never stopped. It takes seconds and finishes safely. The message stays until the install is done.',a:'hmi',b:'pi'}
+     ]},
+    {tab:'7 Low battery',title:'Update now: low battery',
+     blurb:'Downloading uses little power, so it is allowed above a low floor. The install needs a higher minimum, or a charger connected.',
+     parts:['hmi','svc','veh','dl','pi'],
+     msgs:[
+      {f:'hmi',t:'svc',x:'updateNow(appId)'},
+      {f:'svc',t:'veh',x:'Read HV battery, 12V, charging'},
+      {f:'veh',t:'svc',x:'HV 18%, not charging',r:1},
+      {f:'svc',t:'svc',x:'Above the download floor (10%) but below the install minimum (20%)'},
+      {f:'svc',t:'dl',x:'Download and verify as normal'},
+      {f:'dl',t:'svc',x:'APK verified',r:1},
+      {f:'svc',t:'hmi',x:'onStateChanged(HELD, low_battery)',r:1},
+      {note:'HMI: "Battery is low. Charge above 20% to finish the update."',a:'hmi',b:'svc'},
+      {f:'veh',t:'svc',x:'Charging started, HV 22%'},
+      {f:'svc',t:'svc',x:'Checks pass. Queue update_resumed.'},
+      {f:'svc',t:'hmi',x:'onStateChanged(INSTALLING): HMI shows "Updating Media. It will restart."',r:1},
+      {f:'svc',t:'pi',x:'Commit install session'},
+      {f:'pi',t:'svc',x:'SUCCESS',r:1},
+      {f:'svc',t:'hmi',x:'onStateChanged(INSTALLED)',r:1},
+      {note:'Below 10% nothing starts. If the battery falls under the floor during a download, the download pauses and resumes later. A commit that has started is never stopped. With ignition off, the 12V voltage must also stay above its minimum.',a:'hmi',b:'pi'}
+     ]},
+    {tab:'8 Slow or public WiFi',title:'Update now: slow or public WiFi',
+     blurb:'The update continues on slow links, shows an estimate, and pauses and resumes if the link stalls. The network is never trusted: the APK is protected by signatures and hashes.',
+     parts:['hmi','svc','net','dl','cloud','db'],
+     msgs:[
+      {f:'hmi',t:'svc',x:'updateNow(appId)'},
+      {f:'svc',t:'net',x:'Active network: validated? metered? captive portal? speed?'},
+      {f:'net',t:'svc',x:'Public WiFi, validated, about 0.8 Mbps',r:1},
+      {note:'Captive portal (login page) or no internet counts as no network. HMI: "Connect to the internet to update." Cellular or metered: the HMI asks first and shows the download size.',a:'hmi',b:'net'},
+      {f:'svc',t:'svc',x:'Usable but slow: 25 MB at 0.8 Mbps is about 4 min'},
+      {f:'svc',t:'hmi',x:'onProgress(percent, about 4 min left)',r:1},
+      {f:'svc',t:'cloud',x:'GET /v1/manifestapks'},
+      {f:'cloud',t:'svc',x:'Signed URL, SHA-256, size',r:1},
+      {f:'svc',t:'dl',x:'Download with Range over the slow link'},
+      {f:'dl',t:'svc',x:'No bytes for 60 s (stalled)'},
+      {f:'svc',t:'db',x:'Pause: keep the partial file and offset'},
+      {f:'svc',t:'hmi',x:'onStateChanged(WAITING_FOR_NETWORK)',r:1},
+      {f:'net',t:'svc',x:'Network recovered or changed'},
+      {f:'svc',t:'dl',x:'Resume from the saved offset'},
+      {f:'dl',t:'svc',x:'Download complete',r:1},
+      {note:'Public WiFi is untrusted, so safety does not depend on the network. mTLS, the signed manifest, SHA-256 and the signing cert check protect the APK.',a:'svc',b:'db'},
+      {f:'svc',t:'svc',x:'Verify, then install as usual'}
+     ]},
+    {tab:'9 Night auto failures',title:'Failure and retry: automatic update',
+     blurb:'Nobody is waiting, so the service retries quietly. Download failures retry with backoff at any time. Install failures wait for the next 1 AM window.',
+     parts:['veh','svc','dl','db','pi','cloud'],
+     msgs:[
+      {note:'Case A: the network drops during a download'},
+      {f:'dl',t:'svc',x:'WiFi drops or speed falls below the minimum'},
+      {f:'svc',t:'db',x:'State FAILED (download), attempt +1, next retry time'},
+      {note:'Retry after 15 min, then 45 min, then hourly, resuming at the saved byte.'},
+      {f:'svc',t:'dl',x:'Resume from the saved offset'},
+      {f:'dl',t:'svc',x:'Download complete',r:1},
+      {note:'Case B: the download is corrupt'},
+      {f:'svc',t:'svc',x:'SHA-256 mismatch: delete the file, request /v1/manifestapks again, restart (max 3 times)'},
+      {note:'Case C: the car wakes up during the install window'},
+      {f:'veh',t:'svc',x:'Door opens or ignition on'},
+      {f:'svc',t:'db',x:'READY updates stay HELD (vehicle_active); queue update_held'},
+      {note:'Installs are tried again in the next window. Downloads carry on as normal.'},
+      {note:'Case D: the install fails'},
+      {f:'svc',t:'pi',x:'Commit install session'},
+      {f:'pi',t:'svc',x:'FAILURE (for example signature or downgrade error)',r:1},
+      {f:'svc',t:'db',x:'State FAILED (install); keep the reason code'},
+      {f:'svc',t:'cloud',x:'Event install_failed (reason, stage, attempts, auto_night)'},
+      {note:'Permanent failures (signature mismatch, downgrade) do not retry. The old version stays installed and works. After 3 failed nights the HMI shows the update so the user can try Update now.'},
+      {note:'Case E: the window closes (5 AM) before every app is installed'},
+      {f:'svc',t:'db',x:'Remaining apps stay READY (outside_window); queue update_held'},
+      {note:'They are installed in the next window. Nothing is deleted.'}
+     ]},
+    {tab:'10 Update now failures',title:'Failure and retry: Update now',
+     blurb:'The user is waiting, so the HMI shows each step, retries a few times, then offers Try again.',
+     parts:['hmi','svc','dl','pi','db','cloud'],
+     msgs:[
+      {note:'Case A: the network drops or stalls',a:'hmi',b:'cloud'},
+      {f:'dl',t:'svc',x:'Network lost or stalled (no bytes for 60 s)'},
+      {f:'svc',t:'db',x:'State FAILED (download), attempt 1'},
+      {f:'svc',t:'hmi',x:'onStateChanged(RETRYING, connection lost)',r:1},
+      {note:'HMI: "Connection lost. Retrying..." Backoff 1 min, 5 min, 15 min, resuming at the saved byte.',a:'hmi',b:'cloud'},
+      {f:'svc',t:'hmi',x:'onStateChanged(FAILED, network) after 3 attempts',r:1},
+      {note:'HMI: "Could not update Media. Try again." The old version still works.',a:'hmi',b:'cloud'},
+      {f:'hmi',t:'svc',x:'updateNow(appId): the user taps Try again (attempts reset)'},
+      {note:'Case B: the download is corrupt',a:'hmi',b:'cloud'},
+      {f:'svc',t:'svc',x:'SHA-256 mismatch: delete the file, request /v1/manifestapks again, restart (max 3 times)'},
+      {f:'svc',t:'hmi',x:'onStateChanged(FAILED, verify) if all 3 fail',r:1},
+      {note:'Case C: the install fails',a:'hmi',b:'cloud'},
+      {f:'svc',t:'pi',x:'Commit install session'},
+      {f:'pi',t:'svc',x:'FAILURE (signature, downgrade, storage)',r:1},
+      {f:'svc',t:'db',x:'State FAILED (install); keep the reason code'},
+      {f:'svc',t:'hmi',x:'onStateChanged(FAILED, install)',r:1},
+      {f:'svc',t:'cloud',x:'Event install_failed (reason, stage, attempts, update_now)'},
+      {note:'A failed install leaves the old version in place. Permanent failures (signature, downgrade) show "Update not available" and do not offer Try again until a new manifest arrives.',a:'hmi',b:'cloud'}
+     ]},
+    {tab:'11 Per-app install rules',title:'Per-app install rules from the manifest',
+     blurb:'The Release Manager sets when each app may be installed. Rules travel in the signed manifest and are saved with the update. They gate only the install: downloads can happen any time. Evaluated in the 1 AM window (auto) or after an Update now download.',
+     parts:['svc','db','veh','pol','hmi','pi'],colW:185,
+     msgs:[
+      {f:'svc',t:'db',x:'Load READY updates and their installRules (saved from /v1/manifest)'},
+      {f:'db',t:'svc',x:'Media: no extra rules. Navigation: not in egress mode.',r:1},
+      {f:'svc',t:'veh',x:'Read gear, ignition, vehicle mode'},
+      {f:'veh',t:'svc',x:'Parked, vehicle mode: egress',r:1},
+      {f:'svc',t:'pol',x:'Per app: baseline (no install while driving) plus its installRules'},
+      {f:'pol',t:'svc',x:'Media: allowed. Navigation: blocked (egress mode).',r:1},
+      {note:'Media installs as normal'},
+      {f:'svc',t:'hmi',x:'onStateChanged(INSTALLING, Media)',r:1},
+      {f:'svc',t:'pi',x:'Commit install session (Media)'},
+      {f:'pi',t:'svc',x:'SUCCESS',r:1},
+      {f:'svc',t:'db',x:'Media INSTALLED; delete its staged APK. Navigation stays HELD (install_rule: egress mode); queue update_held.'},
+      {note:'Navigation is not installed while the vehicle is in egress mode. Other apps are not affected. Update now: the HMI says "Navigation installs when the vehicle leaves egress mode."'},
+      {note:'Later: the vehicle leaves egress mode'},
+      {f:'veh',t:'svc',x:'Vehicle mode changes: egress mode ends'},
+      {f:'svc',t:'pol',x:'Check Navigation again (baseline and its installRules)'},
+      {f:'pol',t:'svc',x:'Allowed',r:1},
+      {f:'svc',t:'hmi',x:'onStateChanged(INSTALLING, Navigation)',r:1},
+      {f:'svc',t:'pi',x:'Commit install session (Navigation)'},
+      {f:'pi',t:'svc',x:'SUCCESS',r:1},
+      {f:'svc',t:'db',x:'Navigation INSTALLED; delete its staged APK; queue update_resumed and install_success'},
+      {note:'Rules can only add limits. The manifest cannot loosen the driving rule. An app with no installRules follows the baseline only. Rules saved on the vehicle work offline, and a newer manifest replaces them.'}
+     ]},
+    {tab:'12 Low storage: install first',title:'Not enough space: install the downloaded app first',
+     blurb:'Staged APKs take space. If the next download does not fit, the service installs an app that is already downloaded (when its rules allow), deletes its APK, and then downloads. An APK that has not been installed is never deleted to make space.',
+     parts:['svc','db','pol','pi','cloud','dl'],colW:185,
+     msgs:[
+      {note:'Case A: a downloaded app can install now'},
+      {f:'svc',t:'db',x:'Next to download: Spotify (20 MB). Load staged APKs.'},
+      {f:'db',t:'svc',x:'Staged: Media APK (25 MB), state READY',r:1},
+      {f:'svc',t:'svc',x:'Free space 18 MB. Needs 2x the APK size = 40 MB. Not enough.'},
+      {f:'svc',t:'pol',x:'Can Media install now? (baseline and its installRules)'},
+      {f:'pol',t:'svc',x:'Yes: parked, no blocking rule',r:1},
+      {f:'svc',t:'pi',x:'Commit install session (Media)'},
+      {f:'pi',t:'svc',x:'SUCCESS',r:1},
+      {f:'svc',t:'db',x:'Media INSTALLED. Delete the staged Media APK.'},
+      {f:'svc',t:'svc',x:'Free space now 43 MB. Enough for Spotify.'},
+      {f:'svc',t:'cloud',x:'GET /v1/manifestapks (Spotify)'},
+      {f:'cloud',t:'svc',x:'Signed URL, SHA-256, size',r:1},
+      {f:'svc',t:'dl',x:'Download Spotify'},
+      {note:'Case B: the downloaded app cannot install now'},
+      {f:'svc',t:'pol',x:'Can Media install now?'},
+      {f:'pol',t:'svc',x:'No: driving, or an install rule blocks it',r:1},
+      {f:'svc',t:'db',x:'Spotify: HELD (low_storage). Keep the staged Media APK. Queue update_held.'},
+      {note:'The Spotify download resumes when Media installs and frees space. Update now: the HMI says "Not enough storage".'},
+      {note:'Case C: still not enough after the install'},
+      {f:'svc',t:'db',x:'Spotify: HELD (low_storage); event update_held'},
+      {note:'Also cleaned up: an APK replaced by a newer version of the same app is deleted, and every APK is deleted right after a successful install.'}
+     ]}
+  ];
+  var GROUPS=[
+    {label:'Normal flows',idx:[0,1,2,3]},
+    {label:'Conditions that change',idx:[4,5,6,7]},
+    {label:'Failure and retry',idx:[8,9]},
+    {label:'Manifest rules and storage',idx:[10,11]}
+  ];
+  var AIU={title:'Update now when parked: the install message',
+    blurb:'Vehicle state is the only gate. The service does not talk to individual apps. When parked, it installs and the HMI shows a message.',
+    parts:['hmi','svc','veh','pi'],colW:230,
+    msgs:[
+      {f:'hmi',t:'svc',x:'updateNow(appId)'},
+      {f:'svc',t:'veh',x:'Read gear'},
+      {f:'veh',t:'svc',x:'Parked',r:1},
+      {f:'svc',t:'svc',x:'Download and verify the APK. State READY.'},
+      {f:'svc',t:'veh',x:'Read gear again, just before the install'},
+      {f:'veh',t:'svc',x:'Parked (in Park for 10 s)',r:1},
+      {f:'svc',t:'hmi',x:'onStateChanged(INSTALLING)',r:1},
+      {note:'HMI message: "Updating Media. It will restart." It stays on screen until the install finishes.',a:'hmi',b:'pi'},
+      {f:'svc',t:'pi',x:'Commit install session'},
+      {f:'pi',t:'svc',x:'SUCCESS',r:1},
+      {f:'svc',t:'hmi',x:'onStateChanged(INSTALLED)',r:1},
+      {note:'HMI message: "Media updated to 4.1.0".',a:'hmi',b:'pi'},
+      {note:'If the second gear read says Driving, the update is HELD and nothing installs (see diagram 6). If the car starts while the commit is running, the install finishes.',a:'hmi',b:'pi'}
+    ]};
+
+  function renderSeq(cfg,uid){
+    var ids=cfg.parts,colW=cfg.colW||200,left=20,xs={},i;
+    for(i=0;i<ids.length;i++){xs[ids[i]]=left+colW/2+i*colW;}
+    var W=left*2+colW*ids.length,body='',y=76,n=0,items=[],CH=6.4;
+    cfg.msgs.forEach(function(m){
+      var L,h,j;
+      if(m.note){
+        var na=m.a||ids[0],nb=m.b||ids[ids.length-1],x1=xs[na]-colW/2+14,x2=xs[nb]+colW/2-14,w=x2-x1;
+        L=wrap(m.note,Math.floor((w-24)/CH));h=L.length*15+14;
+        body+='<rect class="note" x="'+x1+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="6"/>';
+        for(j=0;j<L.length;j++){body+='<text class="t3" x="'+(x1+w/2)+'" y="'+(y+18+j*15)+'" text-anchor="middle">'+esc(L[j])+'</text>';}
+        y+=h+14;items.push({note:m.note});return;
+      }
+      n++;
+      var fx=xs[m.f],tx=xs[m.t],label=n+'. '+m.x;
+      if(m.f===m.t){
+        var avail=Math.min(colW*1.7,W-fx-50);
+        L=wrap(label,Math.max(14,Math.floor(avail/CH)));
+        h=Math.max(34,L.length*15+10);
+        var vh=Math.max(16,h-16);
+        body+='<path class="ln" d="M'+fx+' '+(y+8)+' h26 v'+vh+' h-24" marker-end="url(#a'+uid+')"/>';
+        for(j=0;j<L.length;j++){body+='<text class="t4" x="'+(fx+34)+'" y="'+(y+14+j*15)+'">'+esc(L[j])+'</text>';}
+        y+=h+12;
+      }else{
+        var span=Math.abs(tx-fx),dir=tx>fx?1:-1;
+        L=wrap(label,Math.max(12,Math.floor((span-16)/CH)));
+        var th=L.length*15,ay=y+th+6;
+        for(j=0;j<L.length;j++){body+='<text class="t4" x="'+((fx+tx)/2)+'" y="'+(y+12+j*15)+'" text-anchor="middle">'+esc(L[j])+'</text>';}
+        body+='<line class="ln'+(m.r?' d':'')+'" x1="'+(fx+dir*3)+'" y1="'+ay+'" x2="'+(tx-dir*3)+'" y2="'+ay+'" marker-end="url(#a'+uid+')"/>';
+        y=ay+18;
+      }
+      items.push({n:n,x:m.x,f:m.f,t:m.t,r:m.r});
+    });
+    var H=y+10,top='';
+    ids.forEach(function(id){
+      var x=xs[id];
+      top+='<line class="life" x1="'+x+'" y1="58" x2="'+x+'" y2="'+H+'"/>';
+      top+='<rect class="b acc" x="'+(x-colW/2+16)+'" y="8" width="'+(colW-32)+'" height="48" rx="8"/>';
+      top+='<text class="t1" x="'+x+'" y="28" text-anchor="middle">'+esc(PT[id].n)+'</text>';
+      top+='<text class="t2" x="'+x+'" y="45" text-anchor="middle">'+esc(PT[id].s)+'</text>';
+    });
+    var svg='<svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc(cfg.title)+'">'+defs(uid)+top+body+'</svg>';
+    var ol='<ol class="events">';
+    items.forEach(function(it){
+      if(it.note){ol+='<li class="n">Note: '+esc(it.note)+'</li>';}
+      else{ol+='<li><b>'+it.n+'. '+esc(PT[it.f].n)+(it.f===it.t?'':' to '+esc(PT[it.t].n))+':</b> <span class="'+(it.r?'r':'')+'">'+esc(it.x)+'</span></li>';}
+    });
+    ol+='</ol>';
+    return '<h3>'+esc(cfg.title)+'</h3><p class="cap">'+esc(cfg.blurb)+'</p><div class="scroll">'+svg+'</div><h3 style="margin-top:16px">Sequence of events</h3>'+ol;
+  }
+
+  var subtabs=document.getElementById('subtabs'),seqbox=document.getElementById('seqbox');
+  SEQ.forEach(function(c,i){
+    var d=document.createElement('div');d.id='sq'+i;d.style.display=i===0?'block':'none';d.innerHTML=renderSeq(c,'q'+i);
+    seqbox.appendChild(d);
+  });
+  GROUPS.forEach(function(g){
+    var row=document.createElement('div');row.className='sg';
+    var l=document.createElement('h3');l.className='gl';l.textContent=g.label;row.appendChild(l);
+    var opts=document.createElement('div');opts.className='opts';
+    g.idx.forEach(function(i){
+      var b=document.createElement('button');
+      b.type='button';b.setAttribute('role','tab');b.setAttribute('aria-selected',i===0?'true':'false');b.setAttribute('data-i',i);b.textContent=SEQ[i].tab;
+      opts.appendChild(b);
+    });
+    row.appendChild(opts);
+    subtabs.appendChild(row);
+  });
+  subtabs.addEventListener('click',function(e){
+    var b=e.target.closest('button');if(!b)return;
+    var k=b.getAttribute('data-i');
+    Array.prototype.forEach.call(subtabs.querySelectorAll('button'),function(x){x.setAttribute('aria-selected',x===b?'true':'false');});
+    SEQ.forEach(function(c,i){document.getElementById('sq'+i).style.display=String(i)===k?'block':'none';});
+  });
+  document.getElementById('aiu').innerHTML=renderSeq(AIU,'qa');
+
+  /* ---------- App in use table ---------- */
+  table('drvtbl',['Stage when driving starts','1 AM automatic update','Update now'],[
+    ['Checking for updates','Not affected. A check is a small request.','Not affected.'],
+    ['Downloading','Not affected. Downloads are not tied to vehicle state.','The download continues. The HMI shows "Downloaded. Installs when you park." when it is done.'],
+    ['Verifying','Finish the check (seconds), then HELD (driving).','Finish the check, then HELD (driving).'],
+    ['Ready, waiting to install','Stays HELD. Tries again in the next window.','Stays HELD until the gear has been in Park for 10 seconds, then installs.'],
+    ['Just before the commit','Read the gear one last time. Drive: HELD and nothing installs.','Same.'],
+    ['Commit running','Not interrupted. It finishes in seconds. The HMI shows the install message until it is done.','Same.']
+  ]);
+  table('aiutbl',['Situation','What the user sees','What the service does'],[
+    ['Driving, any update','Update now: "Downloaded. Installs when you park." Nothing else.','Never installs while driving. The download may continue. The update is HELD (driving).'],
+    ['Parked, the user taps Update now','"Updating Media. It will restart." for a few seconds, then "Media updated to 4.1.0".','Installs once the gear has been in Park for 10 seconds. It does not check what any app is doing.'],
+    ['Parked, and Navigation or music is running','The same message. The app stops and restarts with the new version.','Same as above. This is the accepted trade-off of using vehicle state only.'],
+    ['The car starts while an update is ready','"Downloaded. Installs when you park."','The update stays HELD (driving) until the car is parked again.'],
+    ['The car starts during the few seconds of the install','The message stays until the install finishes, then "Media updated to 4.1.0".','Does not interrupt a running commit. It finishes safely.'],
+    ['An app has an install rule that blocks it (for example egress mode)','Update now: "Navigation installs when the vehicle leaves egress mode." Other apps update as normal.','The update stays downloaded and HELD (install_rule). It installs when the rule allows. See diagram 11.'],
+    ['The 1 AM automatic update','Nothing at night. At the next ignition-on: "Media updated to 4.1.0".','Runs only when parked and ignition off. Installs silently.'],
+    ['Another profile or passenger screen','The same messages, on every screen that shows them.','Vehicle state applies to the whole vehicle, not to a profile.'],
+    ['The install fails','The old version still works. HMI: "Could not update Media. Try again."','A failed install leaves the old version in place. See diagram 10.']
+  ]);
+
+  /* ---------- Rules table ---------- */
+  table('rtbl',['Condition','1 AM automatic update','Update now'],[
+    ['When','Download: any time the checks pass. Install: only in the 1 to 5 AM window (vehicle local time), starting with random jitter.','Any time the user taps Update now. The install follows the install rules.'],
+    ['Vehicle state','Download: not tied to vehicle state. Install: parked and ignition off; pause if a door opens or the ignition turns on. Driving: strictly no install.','Download in any state. Driving: strictly no install. Parked (Park for 10 seconds): install. A running commit is never interrupted.'],
+    ['Network','WiFi that is validated and not metered, at least 2 Mbps.','Any validated network. Metered or cellular: ask first and show the size. Slow: continue and show an estimate. Stalled 60 s: pause and resume.'],
+    ['Public WiFi and captive portal','A captive portal counts as no network. An untrusted network is acceptable because the APK is protected by signatures and hashes.','Same. The HMI says "Connect to the internet to update."'],
+    ['Battery','HV battery at least 30% or charging, and 12V above its minimum.','Download needs at least 10%. Install needs at least 20% or a charger connected.'],
+    ['Storage','Free space at least 2x the APK size. If short and an app is already downloaded, install it first (if its rules allow) and delete its APK, then download. Otherwise HELD (low_storage).','Same. The HMI says "Not enough storage" if it is still short. See diagram 12.'],
+    ['Per-app install rules','From the signed manifest, per app. Only add limits on the install, for example not in egress mode. No rules: baseline only. See diagram 11.','Same.'],
+    ['Profile','Not tied to a profile. The service runs in the system user and updates the whole vehicle.','Primary and secondary profiles can start it. Guest can view only. The event records the profile type, not who.'],
+    ['Apps','The service does not talk to individual apps or check what they are doing. Apps restart when updated and should save their own state.','Same.'],
+    ['Retries','Downloads: 15 min, 45 min, then hourly, resuming at the saved byte. Installs: the next night. After 3 failed nights the HMI shows the update.','1 min, 5 min, 15 min, resuming at the saved byte. Then stop and show Try again.'],
+    ['Messages','None at night. One line at the next ignition-on.','The HMI shows status at every step, including "Updating Media. It will restart." when the install starts.']
+  ]);
+
+  /* ---------- Events table ---------- */
+  table('etbl',['Event','Sent on','Notes'],[
+    ['update_available','CHECKING to AVAILABLE','App has a newer versionCode in the verified manifest'],
+    ['download_started','AVAILABLE to DOWNLOADING','First request for the APK is sent'],
+    ['download_complete','DOWNLOADING to VERIFYING','All bytes written to the staging folder'],
+    ['download_failed','DOWNLOADING to FAILED','Reason: network, timeout, storage'],
+    ['verify_failed','VERIFYING to FAILED','Reason: size, hash, cert or versionCode'],
+    ['update_held','Any step to HELD','heldReason: driving, install_rule, vehicle_active, low_battery, poor_network, outside_window, low_storage'],
+    ['update_resumed','HELD back to the step it left','The checks passed again'],
+    ['install_started','READY to INSTALLING','Installer session committed'],
+    ['install_success','INSTALLING to INSTALLED','New versionCode confirmed by PackageManager'],
+    ['install_failed','INSTALLING to FAILED','Reason: installer status code']
+  ],0);
+
+  /* ---------- Top tabs ---------- */
+  var tabs=document.getElementById('tabs');
+  tabs.addEventListener('click',function(e){
+    var b=e.target.closest('button');if(!b)return;
+    var k=b.getAttribute('data-tab');
+    Array.prototype.forEach.call(tabs.children,function(x){x.setAttribute('aria-selected',x===b?'true':'false');});
+    ['seq','aiu','rules','events'].forEach(function(t){
+      document.getElementById('p-'+t).className='panel'+(t===k?' on':'');
+    });
+  });
+})();
+</script>
+</body>
+</html>
