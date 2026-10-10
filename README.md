@@ -89,5 +89,6 @@ keeps its offset across pauses within the process.
 ## Deferred
 
 The real `DownloadEngine`, retries, integrity, storage rule and failure notifications are the next phase
-(requirements section 12). Unit tests are not written yet; `PolicyEvaluator`, `NetworkClassifier`,
+(requirements section 12). See [docs/download-engine-comparison.md](docs/download-engine-comparison.md)
+for Android `DownloadManager` versus our own transfer as that engine. Unit tests are not written yet; `PolicyEvaluator`, `NetworkClassifier`,
 `DrivingStateMapper` and `Scheduler.delayToNext` are pure and ready for them.
