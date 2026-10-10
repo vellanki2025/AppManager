@@ -13,12 +13,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -29,44 +29,40 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.lucid.appstore.download.events.Logger
-import com.lucid.appstore.download.events.ServiceEvent
-import com.lucid.appstore.download.model.Config
-import com.lucid.appstore.download.model.DeviceState
-import com.lucid.appstore.download.model.NetworkMode
-import com.lucid.appstore.download.model.RunState
-import com.lucid.appstore.download.policy.NetworkClassifier
+import com.lucid.appstore.DownloadConfig
+import com.lucid.appstore.DownloadStatus
 import java.time.LocalTime
 
+private val NETWORK_MODES = listOf("WIFI_ONLY", "WIFI_OR_CELLULAR")
+
+/** Developer status screen, fed entirely by the AIDL service through [StatusViewModel]. */
 @Composable
 fun StatusScreen(vm: StatusViewModel) {
-    val run by vm.runState.collectAsStateWithLifecycle()
+    val status by vm.status.collectAsStateWithLifecycle()
     val config by vm.config.collectAsStateWithLifecycle()
-    val enabled by vm.enabled.collectAsStateWithLifecycle()
-    val device by vm.device.collectAsStateWithLifecycle()
     val events by vm.events.collectAsStateWithLifecycle()
 
     LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { StateCard(run, device, enabled, onRun = vm::runNow, onCancel = vm::cancel, onEnabled = vm::setEnabled) }
-        item { ConfigCard(config, vm::updateConfig) }
+        item { StateCard(status, onRun = vm::runNow, onCancel = vm::cancel, onEnabled = vm::setEnabled) }
+        item { config?.let { ConfigCard(it, vm::updateConfig) } ?: Text("Connecting to download service…") }
         item { Text("Events", style = MaterialTheme.typography.titleMedium) }
-        items(events.asReversed()) { EventRow(it) }
+        items(events.asReversed()) { Text(it, style = MaterialTheme.typography.bodySmall) }
     }
 }
 
 @Composable
-private fun StateCard(run: RunState, device: DeviceState?, enabled: Boolean, onRun: () -> Unit, onCancel: () -> Unit, onEnabled: (Boolean) -> Unit) {
+private fun StateCard(s: DownloadStatus?, onRun: () -> Unit, onCancel: () -> Unit, onEnabled: (Boolean) -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            LabeledSwitch("Download service enabled (feature flag)", enabled, onEnabled)
-            Text("Run: ${run.phase}" + (run.waitReason?.let { " ($it)" } ?: "") + "  id=${run.runId.ifEmpty { "-" }}")
-            run.progress?.let { Text("Progress: ${it.downloaded / 1_048_576} / ${it.total?.div(1_048_576) ?: "?"} MB") }
+            LabeledSwitch("Download service enabled (feature flag)", s?.enabled ?: true, onEnabled)
+            Text("Run: ${s?.phase ?: "-"}" + (s?.waitReason?.let { " ($it)" } ?: ""))
+            if (s != null && s.totalBytes >= 0) Text("Progress: ${s.downloadedBytes / 1_048_576} / ${s.totalBytes / 1_048_576} MB")
             Text(
-                device?.let { "Vehicle: ${it.driving}  battery ${it.battery.levelPercent}%${if (it.battery.charging) " charging" else ""}  net ${NetworkClassifier.classify(it.network)}${if (it.network.validated) "" else " (unvalidated)"}" }
-                    ?: "Vehicle: waiting for signals",
+                if (s == null || s.driving.isEmpty()) "Vehicle: waiting for signals"
+                else "Vehicle: ${s.driving}  battery ${s.batteryPercent}%${if (s.charging) " charging" else ""}  net ${s.networkClass}${if (s.networkValidated) "" else " (unvalidated)"}",
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onRun, enabled = enabled) { Text("Run now") }
+                Button(onClick = onRun, enabled = s?.enabled ?: false) { Text("Run now") }
                 OutlinedButton(onClick = onCancel) { Text("Cancel run") }
             }
         }
@@ -74,8 +70,8 @@ private fun StateCard(run: RunState, device: DeviceState?, enabled: Boolean, onR
 }
 
 @Composable
-private fun ConfigCard(config: Config, update: ((Config) -> Config) -> Unit) {
-    var time by remember(config.scheduleTime) { mutableStateOf(config.scheduleTime.toString()) }
+private fun ConfigCard(config: DownloadConfig, update: ((DownloadConfig) -> DownloadConfig) -> Unit) {
+    var time by remember(config.scheduleTime) { mutableStateOf(config.scheduleTime) }
     var threshold by remember(config.batteryThresholdPercent) { mutableFloatStateOf(config.batteryThresholdPercent.toFloat()) }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -83,11 +79,11 @@ private fun ConfigCard(config: Config, update: ((Config) -> Config) -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(time, { time = it }, label = { Text("Schedule (HH:mm)") }, singleLine = true)
                 Spacer(Modifier.width(8.dp))
-                Button(onClick = { runCatching { LocalTime.parse(time) }.getOrNull()?.let { t -> update { it.copy(scheduleTime = t) } } }) { Text("Apply") }
+                Button(onClick = { runCatching { LocalTime.parse(time) }.onSuccess { t -> update { it.copy(scheduleTime = t.toString()) } } }) { Text("Apply") }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NetworkMode.entries.forEach { mode ->
-                    FilterChip(selected = config.networkMode == mode, onClick = { update { it.copy(networkMode = mode) } }, label = { Text(mode.name) })
+                NETWORK_MODES.forEach { mode ->
+                    FilterChip(selected = config.networkMode == mode, onClick = { update { it.copy(networkMode = mode) } }, label = { Text(mode) })
                 }
             }
             LabeledSwitch("Allow tethering (hotspot, Bluetooth)", config.allowTethered) { v -> update { it.copy(allowTethered = v) } }
@@ -109,9 +105,4 @@ private fun LabeledSwitch(label: String, checked: Boolean, onChange: (Boolean) -
         Text(label)
         Switch(checked = checked, onCheckedChange = onChange)
     }
-}
-
-@Composable
-private fun EventRow(e: ServiceEvent) {
-    Text(Logger.format(e), style = MaterialTheme.typography.bodySmall)
 }

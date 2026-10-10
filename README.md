@@ -6,31 +6,33 @@ itself is a black box (`DownloadEngine`); this phase builds the shell around it.
 [android-download-service-requirements-v3.md](android-download-service-requirements-v3.md).
 
 Targets Android 12 and 15 (`minSdk 31`, `compileSdk/targetSdk 35`). Kotlin, coroutines, WorkManager,
-DataStore, Compose. Gradle 9.4.1, AGP 9.1.1 (built-in Kotlin).
+DataStore, Compose, AIDL. Gradle 9.4.1, AGP 9.1.1 (built-in Kotlin).
 
-## Modules
+## Layout
 
-| Module | Role | Depends on |
-|---|---|---|
-| `automotive` | App `com.lucid.appstore`: manifest, composition root, Compose status screen, AIDL service, catalogue stub | core, vehicle-signals |
-| `download-core` | Scheduling, policy gate, run coordinator, waiting watcher, monitors, config, run state, events, notifications, feature flag, fake engine | WorkManager, DataStore |
-| `vehicle-signals` | `CarPropertyManager` implementations of the two vehicle signal interfaces | core, `android.car` stubs |
+Single app module `automotive`, package `com.lucid.appstore`:
 
-`download-core` never touches car APIs, so it can be built and exercised without a vehicle.
+| Package | Role |
+|---|---|
+| `download.*` | Scheduling, policy gate, run coordinator, waiting watcher, monitors, config, run state, events, notifications, feature flag, fake engine. No vehicle API dependency. |
+| `signals` | Adapters from the vehicle signal library to the two core interfaces. The only place that touches vehicle APIs. |
+| `ipc` | `AppStoreDownloadService`, the AIDL surface used by the Compose UI and by other store clients |
+| `ui` | Compose status screen; talks to the service only through AIDL |
+| `catalogue` | `CatalogueProvider` with a stub until the backend exists |
 
-### Replacing the vehicle signal sources
+### Connecting the vehicle signal library
 
-Implement these two interfaces from `download-core` and pass them to `DownloadComponent.Dependencies`
-in `AppStoreApplication`:
+Fill in the two `TODO(signal-lib)` blocks in
+[VehicleSignals.kt](automotive/src/main/java/com/lucid/appstore/signals/VehicleSignals.kt):
 
 ```kotlin
 interface DrivingStateProvider { val driving: Flow<DrivingState> }   // PARKED, IDLING, MOVING, UNKNOWN
 interface BatteryMonitor       { val battery: Flow<BatteryState> }   // levelPercent, charging
 ```
 
-Flows must be cold: register callbacks on collect and unregister on cancel. Use
-`DrivingStateMapper.map(gearIsPark, speedMps, parkingBrakeOn, requireParkingBrake)` so the parked rule stays
-in one place. Then drop the `vehicle-signals` module.
+Subscribe in the `callbackFlow` body, `trySend` on every update, unsubscribe in `awaitClose`. The driving
+adapter already maps gear, speed and parking brake through `DrivingStateMapper`. Until connected the adapters
+emit fail-safe values, so the gate blocks on `DRIVING`. Add the library's permissions to its own manifest.
 
 ## Runtime flow
 
@@ -44,7 +46,7 @@ in one place. Then drop the `vehicle-signals` module.
 5. Every state change goes through `EventBus` to the logcat `Logger` (tag `DlService`), the
    `NotificationController` and, in debug builds, a Toast.
 
-Package layout in `download-core`: `model`, `policy`, `monitor`, `config`, `run`, `scheduling`, `events`, `engine`.
+Sub-packages of `download`: `model`, `policy`, `monitor`, `config`, `run`, `scheduling`, `events`, `engine`.
 
 ## Feature flag
 
@@ -56,18 +58,22 @@ remote-config implementation of `FeatureFlags` when one exists.
 
 ## AIDL
 
-`IAppStoreDownloadService` (action `com.lucid.appstore.IAppStoreDownloadService`) exposes
-`getAvailableApps()`, `getStatus()`, `startDownload(packageName)`, `cancelDownload()` and a status callback.
+`IAppStoreDownloadService` (action `com.lucid.appstore.IAppStoreDownloadService`) is the only way into the
+service, for the built-in UI as well as external clients:
+
+- `getAvailableApps()`, `getStatus()`, `getConfig()`, `setConfig()`, `setEnabled()` (feature flag),
+  `startDownload(packageName)`, `cancelDownload()`
+- `IDownloadStatusCallback`: `onStatusChanged(DownloadStatus)` on every run-state, flag or vehicle-signal
+  change, `onEvent(String)` with one formatted log line per service event
+
 Binding requires `com.lucid.appstore.permission.BIND_DOWNLOAD_SERVICE` (`signature|privileged`).
-The catalogue comes from `CatalogueProvider`; `StubCatalogueProvider` returns one fixed entry until the
-backend exists.
+Vehicle signals are observed only while a client is bound.
 
 ## Privileged install
 
-Install under `/system/priv-app` or `/product/priv-app` and copy
-`automotive/privapp-permissions-com.lucid.appstore.xml` to the matching `etc/permissions`.
-Car permissions used: `CAR_POWERTRAIN`, `CAR_SPEED`, `CAR_ENERGY`, `CAR_ENERGY_PORTS`.
-The status screen requests the two dangerous ones at runtime.
+Install under `/system/priv-app` or `/product/priv-app`. If the signal library needs
+`signature|privileged` car permissions, add a `privapp-permissions-com.lucid.appstore.xml` allowlist to
+`etc/permissions`.
 
 ## Build and run
 

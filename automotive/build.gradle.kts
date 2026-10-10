@@ -30,8 +30,9 @@ android {
 }
 
 dependencies {
-    implementation(project(":download-core"))
-    implementation(project(":vehicle-signals"))
+    implementation(libs.coroutines.android)
+    implementation(libs.work.runtime)
+    implementation(libs.datastore.preferences)
     implementation(libs.core.ktx)
     implementation(libs.activity.compose)
     implementation(platform(libs.compose.bom))

@@ -6,11 +6,11 @@ import com.lucid.appstore.catalogue.StubCatalogueProvider
 import com.lucid.appstore.download.DownloadComponent
 import com.lucid.appstore.download.config.DataStoreConfigRepository
 import com.lucid.appstore.download.engine.FakeDownloadEngine
-import com.lucid.appstore.vehicle.CarDrivingStateProvider
-import com.lucid.appstore.vehicle.CarEvBatteryMonitor
+import com.lucid.appstore.signals.VehicleBatteryMonitor
+import com.lucid.appstore.signals.VehicleDrivingStateProvider
 import kotlinx.coroutines.flow.map
 
-/** Composition root. Swap the vehicle signal sources or the engine here. */
+/** Composition root. Connect the vehicle signal library inside the two adapters in `signals/`. */
 class AppStoreApplication : Application() {
     val catalogue: CatalogueProvider = StubCatalogueProvider()
 
@@ -21,8 +21,8 @@ class AppStoreApplication : Application() {
             DownloadComponent.Dependencies(
                 context = this,
                 config = config,
-                driving = CarDrivingStateProvider(this, config.config.map { it.requireParkingBrake }),
-                battery = CarEvBatteryMonitor(this),
+                driving = VehicleDrivingStateProvider(config.config.map { it.requireParkingBrake }),
+                battery = VehicleBatteryMonitor(),
                 engine = FakeDownloadEngine(),
                 debug = BuildConfig.DEBUG,
                 featureDefaultEnabled = BuildConfig.DOWNLOAD_SERVICE_ENABLED,

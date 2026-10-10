@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "LucidAppStore"
-include(":automotive", ":download-core", ":vehicle-signals")
+include(":automotive")
