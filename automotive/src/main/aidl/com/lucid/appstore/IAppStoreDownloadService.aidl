@@ -1,6 +1,6 @@
 package com.lucid.appstore;
 
-import com.lucid.appstore.AppInfo;
+import com.lucid.appstore.ui.AppInfo;
 import com.lucid.appstore.DownloadConfig;
 import com.lucid.appstore.DownloadStatus;
 import com.lucid.appstore.IDownloadStatusCallback;

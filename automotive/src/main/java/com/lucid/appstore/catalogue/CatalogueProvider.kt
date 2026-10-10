@@ -1,6 +1,6 @@
 package com.lucid.appstore.catalogue
 
-import com.lucid.appstore.AppInfo
+import com.lucid.appstore.ui.AppInfo
 
 /** Source of the apps offered for download. Replace [StubCatalogueProvider] with the backend-backed one. */
 interface CatalogueProvider {

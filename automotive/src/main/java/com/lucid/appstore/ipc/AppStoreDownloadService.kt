@@ -5,7 +5,7 @@ import android.content.Intent
 import android.os.IBinder
 import android.os.RemoteCallbackList
 import android.util.Log
-import com.lucid.appstore.AppInfo
+import com.lucid.appstore.ui.AppInfo
 import com.lucid.appstore.AppStoreApplication
 import com.lucid.appstore.DownloadConfig
 import com.lucid.appstore.DownloadStatus

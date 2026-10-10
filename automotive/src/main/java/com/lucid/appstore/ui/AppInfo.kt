@@ -1,4 +1,4 @@
-package com.lucid.appstore
+package com.lucid.appstore.ui
 
 import android.os.Parcel
 import android.os.Parcelable

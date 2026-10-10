@@ -23,7 +23,7 @@ Single app module `automotive`, package `com.lucid.appstore`:
 ### Connecting the vehicle signal library
 
 Fill in the two `TODO(signal-lib)` blocks in
-[VehicleSignals.kt](automotive/src/main/java/com/lucid/appstore/signals/VehicleSignals.kt):
+`VehicleDrivingStateProvider.kt` and `VehicleBatteryMonitor.kt` under [signals/](automotive/src/main/java/com/lucid/appstore/signals/):
 
 ```kotlin
 interface DrivingStateProvider { val driving: Flow<DrivingState> }   // PARKED, IDLING, MOVING, UNKNOWN
