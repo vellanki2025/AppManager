@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lucid App Updates: Issue Tracker</title>
+<style>
+  :root { --bg:#f6f7f9; --panel:#ffffff; --fg:#1b2430; --muted:#5b6675; --line:#d5dbe3; --accent:#2457c5; --accentbg:#e8effc; --ok:#1a7f4b; --okbg:#e3f5ec; --warn:#b4531a; --warnbg:#fdeee3; --bad:#b3261e; --badbg:#fbe9e7; box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px); }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#0f1319; --panel:#171c24; --fg:#e8ecf1; --muted:#9aa5b4; --line:#2d3644; --accent:#7aa2f7; --accentbg:#1d2a45; --ok:#4cc38a; --okbg:#16301f; --warn:#f0a066; --warnbg:#3a2615; --bad:#f2827a; --badbg:#3b1b19; } }
+  :root[data-theme="dark"] { --bg:#0f1319; --panel:#171c24; --fg:#e8ecf1; --muted:#9aa5b4; --line:#2d3644; --accent:#7aa2f7; --accentbg:#1d2a45; --ok:#4cc38a; --okbg:#16301f; --warn:#f0a066; --warnbg:#3a2615; --bad:#f2827a; --badbg:#3b1b19; }
+  html { scroll-padding-top:env(safe-area-inset-top,0px); }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif; line-height:1.45; font-size:15px; }
+  .wrap { max-width:1100px; margin:0 auto; padding:20px 16px 40px; }
+  header h1 { font-size:1.35rem; margin:0 0 2px; }
+  header p { margin:0 0 6px; color:var(--muted); }
+  header a { color:var(--accent); font-size:.9rem; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:14px; }
+  .card h2 { font-size:1rem; margin:0 0 10px; }
+  .muted { color:var(--muted); }
+  .small { font-size:.85rem; }
+  button { font:inherit; border-radius:6px; padding:8px 14px; cursor:pointer; border:1px solid var(--line); background:var(--panel); color:var(--fg); }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  button[disabled] { opacity:.5; cursor:default; }
+  .pill { display:inline-block; font-size:.75rem; padding:2px 8px; border-radius:999px; background:var(--accentbg); color:var(--accent); white-space:nowrap; }
+  .pill.ok { background:var(--okbg); color:var(--ok); }
+  .pill.warn { background:var(--warnbg); color:var(--warn); }
+  .pill.bad { background:var(--badbg); color:var(--bad); }
+  .pill.gray { background:var(--bg); color:var(--muted); border:1px solid var(--line); }
+
+  .totals { display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between; }
+  .totals .nums { display:flex; gap:18px; flex-wrap:wrap; }
+  .totals .nums div { min-width:70px; }
+  .totals .nums b { font-size:1.3rem; display:block; line-height:1.1; }
+
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
+  .tab { display:flex; align-items:center; gap:8px; padding:7px 12px; font-size:.88rem; }
+  .tab .n { width:20px; height:20px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:.72rem; border:1px solid var(--line); color:var(--muted); }
+  .tab.sel { background:var(--accentbg); border-color:var(--accent); color:var(--accent); font-weight:600; }
+  .tab.sel .n { border-color:var(--accent); color:var(--accent); }
+  .tab .cnt { background:var(--warnbg); color:var(--warn); border-radius:999px; font-size:.72rem; padding:0 7px; }
+
+  .grid3 { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:10px; margin-bottom:10px; }
+  .grid2 { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px; margin-bottom:10px; }
+  @media (max-width:760px) { .grid3, .grid2 { grid-template-columns:1fr; } }
+  label.f { display:block; font-size:.85rem; color:var(--muted); }
+  label.f > span { display:block; margin-bottom:3px; }
+  select, input[type=text], input[type=date], textarea { width:100%; font:inherit; color:var(--fg); background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:7px 9px; }
+  textarea { min-height:70px; resize:vertical; }
+  .field { margin-bottom:10px; }
+  label.f > span::after { content:" *"; color:var(--bad); }
+  .invalid { border-color:var(--bad) !important; }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+
+  .entry { border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:10px; background:var(--panel); }
+  .entry .top { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:6px; }
+  .entry .top .sp { flex:1; }
+  .entry .meta { font-size:.82rem; color:var(--muted); margin-bottom:8px; }
+  .entry dl { margin:0; display:grid; grid-template-columns:150px minmax(0,1fr); gap:4px 12px; }
+  .entry dt { color:var(--muted); font-size:.85rem; }
+  .entry dd { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
+  @media (max-width:560px) { .entry dl { grid-template-columns:1fr; } .entry dt { margin-top:6px; } }
+  .entry .acts { display:flex; gap:6px; margin-top:10px; }
+  .entry .acts button { padding:4px 10px; font-size:.82rem; }
+  .empty { padding:18px; text-align:center; color:var(--muted); border:1px dashed var(--line); border-radius:8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Lucid App Updates: Issue Tracker</h1>
+    <p>A way to track what went wrong at each step and what can be improved.</p>
+    <a href="lucid-app-updates.html">Back to the update flow</a>
+  </header>
+
+  <div class="card totals" style="margin-top:14px">
+    <div class="nums">
+      <div><b id="tTotal">0</b><span class="small muted">Entries</span></div>
+      <div><b id="tOpen">0</b><span class="small muted">Open</span></div>
+      <div><b id="tProg">0</b><span class="small muted">In progress</span></div>
+      <div><b id="tFixed">0</b><span class="small muted">Fixed</span></div>
+    </div>
+    <div class="actions"><button id="exportCsv">Export CSV</button></div>
+  </div>
+
+  <div class="tabs" id="tabs" role="tablist" aria-label="Steps"></div>
+
+  <section class="card" id="formCard" aria-label="New entry">
+    <h2 id="formTitle">Log what went wrong</h2>
+    <div class="small muted" id="formHint" style="margin-bottom:10px"></div>
+    <div class="grid3">
+      <label class="f"><span>Release</span><select id="fRelease"><option>Release 1</option><option>Release 2</option></select></label>
+      <label class="f"><span>Region</span><select id="fRegion"><option>All regions</option><option>US</option><option>EU</option><option>KSA</option></select></label>
+      <label class="f"><span>App</span><select id="fApp"><option>All apps</option><option>Spotify</option><option>SiriusXM</option><option>Media</option><option>Navigation</option></select></label>
+    </div>
+    <div class="grid3">
+      <label class="f"><span id="fWhereLbl">Where</span><select id="fWhere"></select></label>
+      <label class="f"><span>Date found</span><input type="date" id="fDate"></label>
+      <label class="f"><span>Status</span><select id="fStatus"><option>Open</option><option>In progress</option><option>Fixed</option><option>Monitoring</option></select></label>
+    </div>
+    <div class="grid2">
+      <label class="f"><span>Severity</span><select id="fSev"><option>Low</option><option selected>Medium</option><option>High</option></select></label>
+      <label class="f"><span>Who is following up</span><input type="text" id="fWho" placeholder="Name or team"></label>
+    </div>
+    <div class="field" id="w_failed"><label class="f"><span id="l_failed">What failed</span><textarea id="fFailed"></textarea></label></div>
+    <div class="field" id="w_why"><label class="f"><span id="l_why">Why it failed</span><textarea id="fWhy"></textarea></label></div>
+    <div class="field" id="w_undet"><label class="f"><span id="l_undet">Why it was not detected before</span><textarea id="fUndet"></textarea></label></div>
+    <div class="field" id="w_impact"><label class="f"><span id="l_impact">Impact (who or what was affected)</span><textarea id="fImpact"></textarea></label></div>
+    <div class="field" id="w_fix"><label class="f"><span id="l_fix">How it was fixed</span><textarea id="fFix"></textarea></label></div>
+    <div class="field" id="w_improve"><label class="f"><span id="l_improve">What can be improved</span><textarea id="fImprove"></textarea></label></div>
+    <div class="actions">
+      <button class="primary" id="save">Save entry</button>
+      <button id="cancel" hidden>Cancel edit</button>
+      <span class="small muted" id="msg" role="status"></span>
+    </div>
+  </section>
+
+  <section class="card" aria-label="Entries">
+    <h2 id="listTitle">Entries</h2>
+    <div id="list"></div>
+  </section>
+</div>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var KEY = "lucid-app-updates-tracker-v1";
+
+  // One template per step: a step-specific "where" field and example prompts.
+  var STEPS = [
+    { t: "Development complete", wl: "Type", w: ["Bug fix", "Enhancement"], dev: true,
+      L: { failed: "Change log: all bug fixes and enhancements", why: "Root cause", undet: "Why it was not detected before", impact: "Impact", fix: "How it was fixed", improve: "What can be improved to avoid such issues" },
+      P: { failed: "List each bug fix and enhancement, one per line.\ne.g. Fixed crash when opening Media. Added playlist sharing.", why: "e.g. A missing null check when the playlist is empty.", undet: "e.g. No test covered an empty playlist, or it was missed in review.", impact: "e.g. Which apps, regions or vehicles were affected, and for how long.", fix: "e.g. What was changed in the code to fix it.", improve: "e.g. A new test, a review checklist item or an automated check." },
+      f: "", y: "" },
+    { t: "DevOps builds and signs the APKs", wl: "Which build", w: ["Debug build", "Prod build", "Both"],
+      f: "e.g. The prod APK build failed, the version stamp was wrong, or signing did not complete.", y: "e.g. Wrong signing key, a dependency changed, the build agent ran out of space." },
+    { t: "Release Manager approves and publishes", wl: "Which stage", w: ["QA debug", "QA prod", "Release debug", "Release prod", "Publish to regions"],
+      f: "e.g. QA prod failed, an approval was missed, or the manifest did not publish to a region.", y: "e.g. A test gap, an unclear approval step, a region that was not included." },
+    { t: "Vehicle gets the manifest", wl: "Failed at", w: ["mTLS handshake", "VIN or region lookup", "Manifest signature", "Network or timeout", "Other"],
+      f: "e.g. The vehicle could not reach the API, or got the wrong manifest for its region.", y: "e.g. An expired certificate, a wrong region mapping, a timeout setting." },
+    { t: "Vehicle downloads and installs", wl: "Failed at", w: ["Download", "Hash or signature check", "Install", "Waiting on policy (auto-update or WiFi)", "Other"],
+      f: "e.g. The download stopped, the hash did not match, or the install did not finish.", y: "e.g. A weak connection, low storage, a corrupt file, a policy that blocked the update." },
+    { t: "Vehicle reports update events", wl: "Failed at", w: ["Event not sent", "Event not received", "Wrong or missing data", "Other"],
+      f: "e.g. Update events did not reach Analytics, or the counts were wrong.", y: "e.g. A dropped connection, a changed event format, a delayed upload." },
+    { t: "Release Manager sees release health", wl: "Failed at", w: ["Health shown wrong", "No data shown", "Data arrived late", "Other"],
+      f: "e.g. Release health looked fine but vehicles were failing, or it showed no data.", y: "e.g. A bad threshold, missing events, a delay in the data." }
+  ];
+
+  var DL = { failed: "What failed", why: "Why it failed", undet: "Why it was not detected before", impact: "Impact (who or what was affected)", fix: "How it was fixed", improve: "What can be improved" };
+  var DP = { impact: "e.g. Which apps, regions or vehicles were affected, and for how long.", fix: "e.g. What was done to get things working again.", improve: "e.g. A check, test, alert or process change that would catch this earlier next time." };
+  var entries = [], cur = 1, editId = null, mem = null;
+  function load() {
+    try { var r = localStorage.getItem(KEY); entries = r ? JSON.parse(r) : []; }
+    catch (e) { entries = mem || []; }
+  }
+  function persist() {
+    mem = entries;
+    try { localStorage.setItem(KEY, JSON.stringify(entries)); } catch (e) { /* storage not available, keep in memory */ }
+  }
+  function esc(v) {
+    return String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function today() { var d = new Date(); return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2); }
+  function stCls(s) { return s === "Fixed" ? "ok" : (s === "Open" ? "bad" : (s === "In progress" ? "warn" : "")); }
+  function sevCls(s) { return s === "High" ? "bad" : (s === "Medium" ? "warn" : "gray"); }
+
+  function renderTabs() {
+    var h = '<button class="tab' + (cur === 0 ? " sel" : "") + '" data-s="0" role="tab" aria-selected="' + (cur === 0) + '">All steps</button>';
+    STEPS.forEach(function (s, i) {
+      var open = entries.filter(function (e) { return e.step === i + 1 && e.status !== "Fixed"; }).length;
+      h += '<button class="tab' + (cur === i + 1 ? " sel" : "") + '" data-s="' + (i + 1) + '" role="tab" aria-selected="' + (cur === i + 1) + '"><span class="n">' + (i + 1) + "</span>" + esc(s.t) + (open ? ' <span class="cnt">' + open + "</span>" : "") + "</button>";
+    });
+    $("tabs").innerHTML = h;
+  }
+  function renderTotals() {
+    $("tTotal").textContent = entries.length;
+    $("tOpen").textContent = entries.filter(function (e) { return e.status === "Open"; }).length;
+    $("tProg").textContent = entries.filter(function (e) { return e.status === "In progress"; }).length;
+    $("tFixed").textContent = entries.filter(function (e) { return e.status === "Fixed"; }).length;
+  }
+  function renderForm() {
+    var show = cur !== 0;
+    $("formCard").hidden = !show;
+    if (!show) return;
+    var s = STEPS[cur - 1];
+    $("formTitle").textContent = (editId ? "Edit entry: " : "Log what went wrong: ") + "Step " + cur + ", " + s.t;
+    $("formHint").textContent = s.dev ? "All fields are required. The bug questions only apply when the type is Bug fix." : "All fields are required.";
+    $("fWhereLbl").textContent = s.wl;
+    $("fWhere").innerHTML = s.w.map(function (o) { return "<option>" + esc(o) + "</option>"; }).join("");
+    var L = s.L || DL, P = s.P || {};
+    ["failed", "why", "undet", "impact", "fix", "improve"].forEach(function (k) { $("l_" + k).textContent = L[k] || DL[k]; });
+    $("fFailed").placeholder = P.failed || s.f; $("fWhy").placeholder = P.why || s.y; $("fUndet").placeholder = P.undet || "";
+    $("fImpact").placeholder = P.impact || DP.impact; $("fFix").placeholder = P.fix || DP.fix; $("fImprove").placeholder = P.improve || DP.improve;
+    applyVis();
+    $("save").textContent = editId ? "Update entry" : "Save entry";
+    $("cancel").hidden = !editId;
+  }
+  function bugOnly() { return STEPS[cur - 1] && STEPS[cur - 1].dev && $("fWhere").value !== "Bug fix"; }
+  function applyVis() {
+    var dev = !!(STEPS[cur - 1] && STEPS[cur - 1].dev), enh = bugOnly();
+    $("w_undet").hidden = !dev || enh;
+    ["why", "impact", "fix", "improve"].forEach(function (k) { $("w_" + k).hidden = enh; });
+  }
+  function entryHtml(e) {
+    var L = STEPS[e.step - 1].L || DL;
+    var rows = [[L.failed, e.failed], [L.why || DL.why, e.why], [STEPS[e.step - 1].dev ? L.undet : "", e.undet], [L.impact || DL.impact, e.impact], [L.fix || DL.fix, e.fix], [L.improve || DL.improve, e.improve], ["Following up", e.who]];
+    var dl = rows.filter(function (r) { return r[1] && r[0]; }).map(function (r) { return "<dt>" + r[0] + "</dt><dd>" + esc(r[1]) + "</dd>"; }).join("");
+    return '<article class="entry" data-id="' + e.id + '"><div class="top">' +
+      '<span class="pill gray">Step ' + e.step + "</span><b>" + esc(STEPS[e.step - 1].t) + '</b><span class="sp"></span>' +
+      '<span class="pill ' + sevCls(e.sev) + '">' + esc(e.sev) + '</span><span class="pill ' + stCls(e.status) + '">' + esc(e.status) + "</span></div>" +
+      '<div class="meta">' + [e.release, e.region, e.app, e.where, e.date].filter(Boolean).map(esc).join(" &middot; ") + "</div>" +
+      "<dl>" + dl + "</dl>" +
+      '<div class="acts"><button data-act="edit">Edit</button>' +
+      (e.status !== "Fixed" ? '<button data-act="fixed">Mark fixed</button>' : '<button data-act="reopen">Reopen</button>') +
+      '<button data-act="del">Delete</button></div></article>';
+  }
+  function renderList() {
+    var list = entries.filter(function (e) { return cur === 0 || e.step === cur; });
+    list.sort(function (a, b) { return (b.date || "").localeCompare(a.date || "") || b.id - a.id; });
+    $("listTitle").textContent = cur === 0 ? "All entries" : "Entries for step " + cur;
+    $("list").innerHTML = list.length ? list.map(entryHtml).join("") : '<div class="empty">Nothing logged yet' + (cur === 0 ? "." : " for this step.") + "</div>";
+  }
+  function render() { renderTabs(); renderTotals(); renderForm(); renderList(); }
+
+  function clearForm() {
+    editId = null;
+    ["fFailed", "fWhy", "fUndet", "fImpact", "fFix", "fImprove", "fWho"].forEach(function (id) { $(id).value = ""; });
+    $("fDate").value = today(); $("fStatus").value = "Open"; $("fSev").value = "Medium";
+    $("fRelease").selectedIndex = 0; $("fRegion").selectedIndex = 0; $("fApp").selectedIndex = 0;
+    $("msg").textContent = "";
+    document.querySelectorAll(".invalid").forEach(function (el) { el.classList.remove("invalid"); });
+  }
+  function save() {
+    var req = [["fDate", "Date found"], ["fWho", "Who is following up"], ["fFailed", null], ["fWhy", null], ["fUndet", null], ["fImpact", null], ["fFix", null], ["fImprove", null]];
+    var map = { fFailed: "failed", fWhy: "why", fUndet: "undet", fImpact: "impact", fFix: "fix", fImprove: "improve" };
+    var missing = req.filter(function (r) {
+      var el = $(r[0]), wrap = map[r[0]] ? $("w_" + map[r[0]]) : null;
+      var bad = !(wrap && wrap.hidden) && !el.value.trim();
+      el.classList.toggle("invalid", bad);
+      if (bad && !r[1]) r[1] = $("l_" + map[r[0]]).textContent;
+      return bad;
+    });
+    if (missing.length) { $("msg").textContent = "Fill in: " + missing.map(function (r) { return r[1]; }).join(", ") + "."; $(missing[0][0]).focus(); return; }
+    var failed = $("fFailed").value.trim();
+    var data = { step: cur, release: $("fRelease").value, region: $("fRegion").value, app: $("fApp").value, where: $("fWhere").value, date: $("fDate").value,
+      status: $("fStatus").value, sev: $("fSev").value, who: $("fWho").value.trim(), failed: failed, why: $("fWhy").value.trim(), undet: $("fUndet").value.trim(),
+      impact: $("fImpact").value.trim(), fix: $("fFix").value.trim(), improve: $("fImprove").value.trim() };
+    if (editId) {
+      entries = entries.map(function (e) { return e.id === editId ? Object.assign({ id: e.id }, data) : e; });
+    } else {
+      data.id = Date.now(); entries.push(data);
+    }
+    persist(); var wasEdit = !!editId; clearForm(); render();
+    $("msg").textContent = wasEdit ? "Entry updated." : "Entry saved.";
+  }
+  function startEdit(id) {
+    var e = entries.filter(function (x) { return x.id === id; })[0];
+    if (!e) return;
+    cur = e.step; editId = id; renderForm();
+    $("fRelease").value = e.release; $("fRegion").value = e.region; $("fApp").value = e.app; $("fWhere").value = e.where;
+    $("fDate").value = e.date; $("fStatus").value = e.status; $("fSev").value = e.sev; $("fWho").value = e.who || "";
+    $("fFailed").value = e.failed; $("fWhy").value = e.why || ""; $("fUndet").value = e.undet || ""; applyVis(); $("fImpact").value = e.impact || ""; $("fFix").value = e.fix || ""; $("fImprove").value = e.improve || "";
+    renderTabs(); renderList(); $("formCard").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  function csvCell(v) { return '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"'; }
+  function exportCsv() {
+    var head = ["Step", "Step name", "Release", "Region", "App", "Where", "Date found", "Status", "Severity", "What failed / change log", "Why it failed / root cause", "Why it was not detected before", "Impact", "How it was fixed", "What can be improved", "Following up"];
+    var rows = entries.slice().sort(function (a, b) { return a.step - b.step || a.id - b.id; }).map(function (e) {
+      return [e.step, STEPS[e.step - 1].t, e.release, e.region, e.app, e.where, e.date, e.status, e.sev, e.failed, e.why, e.undet, e.impact, e.fix, e.improve, e.who].map(csvCell).join(",");
+    });
+    var blob = new Blob([[head.map(csvCell).join(",")].concat(rows).join("\r\n")], { type: "text/csv;charset=utf-8" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = "lucid-app-updates-tracker.csv";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 500);
+  }
+
+  $("tabs").addEventListener("click", function (ev) {
+    var b = ev.target.closest("button[data-s]"); if (!b) return;
+    cur = +b.getAttribute("data-s"); if (editId) clearForm(); render();
+  });
+  $("list").addEventListener("click", function (ev) {
+    var b = ev.target.closest("button[data-act]"); if (!b) return;
+    var id = +b.closest(".entry").getAttribute("data-id"), act = b.getAttribute("data-act");
+    if (act === "edit") return startEdit(id);
+    if (act === "del") { if (!confirm("Delete this entry?")) return; entries = entries.filter(function (e) { return e.id !== id; }); }
+    if (act === "fixed") entries = entries.map(function (e) { if (e.id === id) e.status = "Fixed"; return e; });
+    if (act === "reopen") entries = entries.map(function (e) { if (e.id === id) e.status = "Open"; return e; });
+    persist(); render();
+  });
+  ["fDate", "fWho", "fFailed", "fWhy", "fUndet", "fImpact", "fFix", "fImprove"].forEach(function (id) {
+    $(id).addEventListener("input", function () { if ($(id).value.trim()) $(id).classList.remove("invalid"); });
+  });
+  $("fWhere").addEventListener("change", applyVis);
+  $("save").addEventListener("click", save);
+  $("cancel").addEventListener("click", function () { clearForm(); render(); });
+  $("exportCsv").addEventListener("click", exportCsv);
+
+  load(); clearForm(); render();
+})();
+</script>
+</body>
+</html>
