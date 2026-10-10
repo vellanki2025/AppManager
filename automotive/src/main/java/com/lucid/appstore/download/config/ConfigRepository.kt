@@ -39,7 +39,6 @@ class DataStoreConfigRepository(context: Context) : ConfigRepository {
         return Config(
             scheduleTime = this[SCHEDULE_TIME]?.let(LocalTime::parse) ?: d.scheduleTime,
             networkMode = this[NETWORK_MODE]?.let(NetworkMode::valueOf) ?: d.networkMode,
-            requireParkingBrake = this[REQUIRE_PARKING_BRAKE] ?: d.requireParkingBrake,
             batteryThresholdPercent = this[BATTERY_THRESHOLD] ?: d.batteryThresholdPercent,
             batteryResumeMarginPercent = this[BATTERY_MARGIN] ?: d.batteryResumeMarginPercent,
             resumeStabilityWindow = this[STABILITY_SECONDS]?.seconds ?: d.resumeStabilityWindow,
@@ -50,7 +49,6 @@ class DataStoreConfigRepository(context: Context) : ConfigRepository {
     private fun androidx.datastore.preferences.core.MutablePreferences.write(c: Config) {
         this[SCHEDULE_TIME] = c.scheduleTime.toString()
         this[NETWORK_MODE] = c.networkMode.name
-        this[REQUIRE_PARKING_BRAKE] = c.requireParkingBrake
         this[BATTERY_THRESHOLD] = c.batteryThresholdPercent
         this[BATTERY_MARGIN] = c.batteryResumeMarginPercent
         this[STABILITY_SECONDS] = c.resumeStabilityWindow.inWholeSeconds
@@ -60,7 +58,6 @@ class DataStoreConfigRepository(context: Context) : ConfigRepository {
     private companion object {
         val SCHEDULE_TIME = stringPreferencesKey("schedule_time")
         val NETWORK_MODE = stringPreferencesKey("network_mode")
-        val REQUIRE_PARKING_BRAKE = booleanPreferencesKey("require_parking_brake")
         val BATTERY_THRESHOLD = intPreferencesKey("battery_threshold")
         val BATTERY_MARGIN = intPreferencesKey("battery_margin")
         val STABILITY_SECONDS = longPreferencesKey("stability_seconds")

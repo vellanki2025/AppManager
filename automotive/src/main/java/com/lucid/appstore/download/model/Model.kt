@@ -22,8 +22,6 @@ data class Config(
     val scheduleTime: LocalTime = LocalTime.of(2, 0),
     /** Tethered networks (metered Wi-Fi hotspot, Bluetooth) are always blocked. */
     val networkMode: NetworkMode = NetworkMode.WIFI_ONLY,
-    /** PARKED additionally requires the parking brake to be engaged. */
-    val requireParkingBrake: Boolean = false,
     val batteryThresholdPercent: Int = 20,
     /** After a battery wait the level must reach threshold + margin before resuming. */
     val batteryResumeMarginPercent: Int = 5,

@@ -10,31 +10,29 @@ import java.time.LocalTime
 data class DownloadConfig(
     val scheduleTime: String,
     val networkMode: String,
-    val requireParkingBrake: Boolean,
     val batteryThresholdPercent: Int,
     val batteryResumeMarginPercent: Int,
 ) : Parcelable {
     override fun describeContents() = 0
     override fun writeToParcel(d: Parcel, flags: Int) {
-        d.writeString(scheduleTime); d.writeString(networkMode); d.writeInt(if (requireParkingBrake) 1 else 0); d.writeInt(batteryThresholdPercent); d.writeInt(batteryResumeMarginPercent)
+        d.writeString(scheduleTime); d.writeString(networkMode); d.writeInt(batteryThresholdPercent); d.writeInt(batteryResumeMarginPercent)
     }
 
     /** Applies the editable fields onto an existing [Config], keeping the durations it does not carry. */
     fun applyTo(c: Config): Config = c.copy(
         scheduleTime = LocalTime.parse(scheduleTime),
         networkMode = NetworkMode.valueOf(networkMode),
-        requireParkingBrake = requireParkingBrake,
         batteryThresholdPercent = batteryThresholdPercent,
         batteryResumeMarginPercent = batteryResumeMarginPercent,
     )
 
     companion object CREATOR : Parcelable.Creator<DownloadConfig> {
         fun from(c: Config) = DownloadConfig(
-            c.scheduleTime.toString(), c.networkMode.name, c.requireParkingBrake,
+            c.scheduleTime.toString(), c.networkMode.name,
             c.batteryThresholdPercent, c.batteryResumeMarginPercent,
         )
         override fun createFromParcel(p: Parcel) =
-            DownloadConfig(p.readString()!!, p.readString()!!, p.readInt() == 1, p.readInt(), p.readInt())
+            DownloadConfig(p.readString()!!, p.readString()!!, p.readInt(), p.readInt())
         override fun newArray(size: Int) = arrayOfNulls<DownloadConfig>(size)
     }
 }

@@ -45,7 +45,7 @@ fun StatusScreen(vm: StatusViewModel) {
     LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { RunCard(status, config, vm::updateConfig, onRun = vm::runNow, onCancel = vm::cancel, onEnabled = vm::setEnabled) }
         item { NetworkCard(status, config, vm::updateConfig) }
-        item { DrivingCard(status, config, vm::updateConfig) }
+        item { DrivingCard(status) }
         item { BatteryCard(status, config, vm::updateConfig) }
         item { Text("Events", style = MaterialTheme.typography.titleMedium) }
         items(events.asReversed()) { Text(it, style = MaterialTheme.typography.bodySmall) }
@@ -87,11 +87,10 @@ private fun NetworkCard(s: DownloadStatus?, c: DownloadConfig?, update: Update) 
 }
 
 @Composable
-private fun DrivingCard(s: DownloadStatus?, c: DownloadConfig?, update: Update) {
+private fun DrivingCard(s: DownloadStatus?) {
     Section("Driving state") {
         Text("Current: " + (s?.driving?.ifEmpty { null } ?: "waiting for signals"))
         Text("Download runs only while PARKED (gear in Park, speed zero).", style = MaterialTheme.typography.bodySmall)
-        LabeledSwitch("Also require parking brake", c?.requireParkingBrake ?: false, enabled = c != null) { v -> update { it.copy(requireParkingBrake = v) } }
     }
 }
 

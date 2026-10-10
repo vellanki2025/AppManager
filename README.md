@@ -31,7 +31,7 @@ interface BatteryMonitor       { val battery: Flow<BatteryState> }   // levelPer
 ```
 
 Subscribe in the `callbackFlow` body, `trySend` on every update, unsubscribe in `awaitClose`. The driving
-adapter already maps gear, speed and parking brake through `DrivingStateMapper`. Until connected the adapters
+adapter already maps gear and speed through `DrivingStateMapper`. Until connected the adapters
 emit fail-safe values, so the gate blocks on `DRIVING`. Add the library's permissions to its own manifest.
 
 ## Runtime flow

@@ -16,7 +16,7 @@ import kotlinx.coroutines.flow.first
  * The vehicle implementations live in the `vehicle-signals` module and can be swapped for OEM libraries.
  */
 
-/** Maps gear, speed and optional parking brake to [DrivingState] (section 5.1). */
+/** Maps gear and speed to [DrivingState] (section 5.1). */
 interface DrivingStateProvider { val driving: Flow<DrivingState> }
 
 /** Battery level and charging. On an EV this is the traction battery state of charge. */
