@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Install to /system/etc/permissions (or /product/etc/permissions) next to the priv-app. -->
+<permissions>
+    <privapp-permissions package="com.lucid.appstore">
+        <permission name="android.car.permission.CAR_ENERGY_PORTS" />
+    </privapp-permissions>
+</permissions>

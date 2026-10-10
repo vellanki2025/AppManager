@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-feature android:name="android.hardware.type.automotive" android:required="true" />
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Clients binding to the download service must be platform-signed or privileged. -->
+    <permission
+        android:name="com.lucid.appstore.permission.BIND_DOWNLOAD_SERVICE"
+        android:protectionLevel="signature|privileged" />
+
+    <application
+        android:name=".AppStoreApplication"
+        android:label="@string/app_name"
+        android:theme="@android:style/Theme.Material.NoActionBar">
+
+        <uses-library android:name="android.car" android:required="true" />
+
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".ipc.AppStoreDownloadService"
+            android:exported="true"
+            android:permission="com.lucid.appstore.permission.BIND_DOWNLOAD_SERVICE">
+            <intent-filter>
+                <action android:name="com.lucid.appstore.IAppStoreDownloadService" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>
