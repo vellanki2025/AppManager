@@ -52,7 +52,7 @@ class NotificationController(private val context: Context) : EventSink {
         val cls = e.device?.let { NetworkClassifier.classify(it.network) }
         return when {
             cls != null && NetworkClassifier.isTethered(cls) -> "Download waiting: tethering not allowed"
-            e.config?.networkMode == NetworkMode.WIFI_OR_CELLULAR -> "Download waiting for Wi-Fi or cellular"
+            e.config?.networkMode == NetworkMode.WIFI_OR_CELLULAR && e.device?.cellularSubscribed == true -> "Download waiting for Wi-Fi or cellular"
             else -> "Download waiting for unmetered Wi-Fi"
         }
     }

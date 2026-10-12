@@ -20,6 +20,7 @@ import com.lucid.appstore.download.events.NotificationController
 import com.lucid.appstore.download.events.ServiceEvent
 import com.lucid.appstore.download.monitor.BatteryMonitor
 import com.lucid.appstore.download.monitor.ConnectivityNetworkMonitor
+import com.lucid.appstore.download.monitor.ConnectivitySubscriptionProvider
 import com.lucid.appstore.download.monitor.DefaultDeviceStateMonitor
 import com.lucid.appstore.download.monitor.DeviceStateMonitor
 import com.lucid.appstore.download.monitor.DrivingStateProvider
@@ -83,6 +84,7 @@ class DownloadComponent private constructor(
         val context: Context,
         val driving: DrivingStateProvider,
         val battery: BatteryMonitor,
+        val subscription: ConnectivitySubscriptionProvider,
         val config: ConfigRepository,
         val network: NetworkMonitor = ConnectivityNetworkMonitor(context),
         val engine: DownloadEngine = FakeDownloadEngine(),
@@ -102,7 +104,7 @@ class DownloadComponent private constructor(
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             val flags = DataStoreFeatureFlags(app, deps.featureDefaultEnabled)
             val store = DataStoreRunStateStore(app, deps.clock)
-            val monitor = DefaultDeviceStateMonitor(deps.battery, deps.network, deps.driving)
+            val monitor = DefaultDeviceStateMonitor(deps.battery, deps.network, deps.driving, deps.subscription)
             val notifications = NotificationController(app)
             val events = DefaultEventBus(listOf(Logger(app, debugToasts = deps.debug), notifications))
             val policy = DefaultPolicyEvaluator(logAllFailures = deps.debug) { Log.d(Logger.TAG, it) }

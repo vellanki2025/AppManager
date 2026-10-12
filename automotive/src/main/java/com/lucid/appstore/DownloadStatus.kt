@@ -19,19 +19,21 @@ data class DownloadStatus(
     val charging: Boolean,
     val networkClass: String,
     val networkValidated: Boolean,
+    /** Cellular option is available only when true. */
+    val cellularSubscribed: Boolean,
 ) : Parcelable {
     override fun describeContents() = 0
     override fun writeToParcel(d: Parcel, flags: Int) {
         d.writeInt(if (enabled) 1 else 0); d.writeString(phase); d.writeString(waitReason)
         d.writeLong(downloadedBytes); d.writeLong(totalBytes); d.writeLong(lastSuccessAt)
         d.writeString(driving); d.writeInt(batteryPercent); d.writeInt(if (charging) 1 else 0)
-        d.writeString(networkClass); d.writeInt(if (networkValidated) 1 else 0)
+        d.writeString(networkClass); d.writeInt(if (networkValidated) 1 else 0); d.writeInt(if (cellularSubscribed) 1 else 0)
     }
 
     companion object CREATOR : Parcelable.Creator<DownloadStatus> {
         override fun createFromParcel(p: Parcel) = DownloadStatus(
             p.readInt() == 1, p.readString()!!, p.readString(), p.readLong(), p.readLong(), p.readLong(),
-            p.readString()!!, p.readInt(), p.readInt() == 1, p.readString()!!, p.readInt() == 1,
+            p.readString()!!, p.readInt(), p.readInt() == 1, p.readString()!!, p.readInt() == 1, p.readInt() == 1,
         )
         override fun newArray(size: Int) = arrayOfNulls<DownloadStatus>(size)
     }

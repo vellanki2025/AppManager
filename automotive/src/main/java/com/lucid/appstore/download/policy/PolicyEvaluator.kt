@@ -42,12 +42,13 @@ class DefaultPolicyEvaluator(
         val cls = NetworkClassifier.classify(s.network)
         val allowed = when (cls) {
             NetworkClass.UNMETERED_WIFI -> true
-            NetworkClass.CELLULAR -> c.networkMode == NetworkMode.WIFI_OR_CELLULAR
+            NetworkClass.CELLULAR -> c.networkMode == NetworkMode.WIFI_OR_CELLULAR && s.cellularSubscribed
             NetworkClass.METERED_WIFI, NetworkClass.BLUETOOTH_TETHER,
             NetworkClass.NONE, NetworkClass.ETHERNET, NetworkClass.OTHER -> false
         }
         return when {
             !allowed && NetworkClassifier.isTethered(cls) -> Blocked(BlockReason.NETWORK, "$cls: tethering not allowed")
+            !allowed && cls == NetworkClass.CELLULAR && !s.cellularSubscribed -> Blocked(BlockReason.NETWORK, "cellular needs a connectivity subscription")
             !allowed -> Blocked(BlockReason.NETWORK, "$cls not allowed in ${c.networkMode}")
             !s.network.validated -> Blocked(BlockReason.NETWORK, "$cls has no validated internet")
             else -> null

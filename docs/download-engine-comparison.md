@@ -5,32 +5,32 @@ orchestration, persistence, events) stays the same either way; only the `Downloa
 
 ## The two options
 
-| | A. Android `DownloadManager` | B. Own HTTP transfer in the WorkManager worker |
-|---|---|---|
-| Who moves the bytes | System `DownloadProvider` process | Our `download_run` worker, on `Dispatchers.IO` |
-| Where it runs | Outside our process | Inside our process, as a `dataSync` foreground service |
-| What we write | Thin `DownloadEngine` that enqueues, pauses, resumes and polls | Full transfer: HTTP client, `.part` file, Range resume, integrity, retry |
+|                     | A. Android `DownloadManager`                                   | B. Own HTTP transfer in the WorkManager worker                           |
+|---------------------|----------------------------------------------------------------|--------------------------------------------------------------------------|
+| Who moves the bytes | System `DownloadProvider` process                              | Our `download_run` worker, on `Dispatchers.IO`                           |
+| Where it runs       | Outside our process                                            | Inside our process, as a `dataSync` foreground service                   |
+| What we write       | Thin `DownloadEngine` that enqueues, pauses, resumes and polls | Full transfer: HTTP client, `.part` file, Range resume, integrity, retry |
 
 ## Comparison
 
-| Concern | A. DownloadManager | B. Own transfer |
-|---|---|---|
-| HTTP transfer, Range resume, retry | Built in, system-tested | We write and test it (requirements section 12) |
-| Survives our process death | Yes, the transfer keeps going | Transfer stops; WorkManager re-runs the worker and we resume from the `.part` file |
-| Survives reboot | Yes, the provider resumes | WorkManager restores the work; we resume from the `.part` file |
-| Foreground service needed | No | Yes, `dataSync` type |
-| Android 15 `dataSync` six-hour daily limit | Not applicable | Applies; the system-stop path handles the timeout and a 500 MB file on slow Wi-Fi can hit it |
-| Pause when the car starts moving | **Public API has no pause.** `remove()` deletes the partial file. The provider's `control` column pauses and resumes, but it is hidden and needs `ACCESS_DOWNLOAD_MANAGER_ADVANCED` (signature or privileged) | Immediate: cancel the coroutine, keep the `.part` file, resume with `Range` |
-| Battery rule | Not aware of it; our shell must pause and resume | Same; our shell pauses and resumes |
-| Network rule | `setAllowedNetworkTypes` and `setAllowedOverMetered(false)` enforce it in the provider as well as in our gate | Enforced only by our gate and mid-run watcher |
-| Progress source | Poll the status cursor (about once a second) | Direct from the stream |
-| Progress notification | The provider shows its own, or we hide it and show ours | Ours only |
-| Integrity check, checksum, file-type sanity | We do it after completion | We do it after completion |
-| Server quirks (no Range support, changing ETag) | Provider behaviour is fixed; a server without Range restarts from zero | We decide: soft pause, restart, `If-Range` |
-| Target file location | Provider-chosen or app external files dir; readable by the installer | Our app files dir |
-| Availability on the image | `com.android.providers.downloads` is optional in automotive builds | Always available |
-| Code we own and test | Small | Large; this is the deferred phase in the requirements |
-| Debuggability | Provider logs and cursor state, less visibility | Full visibility in our logs |
+| Concern                                         | A. DownloadManager                                                                                                                                                                                            | B. Own transfer                                                                              |
+|-------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------|
+| HTTP transfer, Range resume, retry              | Built in, system-tested                                                                                                                                                                                       | We write and test it (requirements section 12)                                               |
+| Survives our process death                      | Yes, the transfer keeps going                                                                                                                                                                                 | Transfer stops; WorkManager re-runs the worker and we resume from the `.part` file           |
+| Survives reboot                                 | Yes, the provider resumes                                                                                                                                                                                     | WorkManager restores the work; we resume from the `.part` file                               |
+| Foreground service needed                       | No                                                                                                                                                                                                            | Yes, `dataSync` type                                                                         |
+| Android 15 `dataSync` six-hour daily limit      | Not applicable                                                                                                                                                                                                | Applies; the system-stop path handles the timeout and a 500 MB file on slow Wi-Fi can hit it |
+| Pause when the car starts moving                | **Public API has no pause.** `remove()` deletes the partial file. The provider's `control` column pauses and resumes, but it is hidden and needs `ACCESS_DOWNLOAD_MANAGER_ADVANCED` (signature or privileged) | Immediate: cancel the coroutine, keep the `.part` file, resume with `Range`                  |
+| Battery rule                                    | Not aware of it; our shell must pause and resume                                                                                                                                                              | Same; our shell pauses and resumes                                                           |
+| Network rule                                    | `setAllowedNetworkTypes` and `setAllowedOverMetered(false)` enforce it in the provider as well as in our gate                                                                                                 | Enforced only by our gate and mid-run watcher                                                |
+| Progress source                                 | Poll the status cursor (about once a second)                                                                                                                                                                  | Direct from the stream                                                                       |
+| Progress notification                           | The provider shows its own, or we hide it and show ours                                                                                                                                                       | Ours only                                                                                    |
+| Integrity check, checksum, file-type sanity     | We do it after completion                                                                                                                                                                                     | We do it after completion                                                                    |
+| Server quirks (no Range support, changing ETag) | Provider behaviour is fixed; a server without Range restarts from zero                                                                                                                                        | We decide: soft pause, restart, `If-Range`                                                   |
+| Target file location                            | Provider-chosen or app external files dir; readable by the installer                                                                                                                                          | Our app files dir                                                                            |
+| Availability on the image                       | `com.android.providers.downloads` is optional in automotive builds                                                                                                                                            | Always available                                                                             |
+| Code we own and test                            | Small                                                                                                                                                                                                         | Large; this is the deferred phase in the requirements                                        |
+| Debuggability                                   | Provider logs and cursor state, less visibility                                                                                                                                                               | Full visibility in our logs                                                                  |
 
 ## What decides it
 

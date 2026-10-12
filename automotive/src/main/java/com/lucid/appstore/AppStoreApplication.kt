@@ -7,6 +7,7 @@ import com.lucid.appstore.download.DownloadComponent
 import com.lucid.appstore.download.config.DataStoreConfigRepository
 import com.lucid.appstore.download.engine.FakeDownloadEngine
 import com.lucid.appstore.signals.VehicleBatteryMonitor
+import com.lucid.appstore.signals.VehicleConnectivitySubscription
 import com.lucid.appstore.signals.VehicleDrivingStateProvider
 
 /** Composition root. Connect the vehicle signal library inside the two adapters in `signals/`. */
@@ -22,6 +23,7 @@ class AppStoreApplication : Application() {
                 config = config,
                 driving = VehicleDrivingStateProvider(),
                 battery = VehicleBatteryMonitor(),
+                subscription = VehicleConnectivitySubscription(),
                 engine = FakeDownloadEngine(),
                 debug = BuildConfig.DEBUG,
                 featureDefaultEnabled = BuildConfig.DOWNLOAD_SERVICE_ENABLED,

@@ -22,12 +22,13 @@ Single app module `automotive`, package `com.lucid.appstore`:
 
 ### Connecting the vehicle signal library
 
-Fill in the two `TODO(signal-lib)` blocks in
+Fill in the `TODO(signal-lib)` blocks in
 `VehicleDrivingStateProvider.kt` and `VehicleBatteryMonitor.kt` under [signals/](automotive/src/main/java/com/lucid/appstore/signals/):
 
 ```kotlin
-interface DrivingStateProvider { val driving: Flow<DrivingState> }   // PARKED, IDLING, MOVING, UNKNOWN
-interface BatteryMonitor       { val battery: Flow<BatteryState> }   // levelPercent, charging
+interface DrivingStateProvider             { val driving: Flow<DrivingState> }   // PARKED, IDLING, MOVING, UNKNOWN
+interface BatteryMonitor                   { val battery: Flow<BatteryState> }   // levelPercent, charging
+interface ConnectivitySubscriptionProvider { val subscribed: Flow<Boolean> }     // vehicle data plan active
 ```
 
 Subscribe in the `callbackFlow` body, `trySend` on every update, unsubscribe in `awaitClose`. The driving
@@ -92,6 +93,10 @@ keeps its offset across pauses within the process.
   first check and pauses a running transfer when the vehicle leaves PARKED. The install phase applies the same
   rule. This supersedes the "downloads are not tied to vehicle state" assumption in
   `vehicle-updater-service-flow.html`.
+- **Cellular is a Settings choice, never a prompt** (2026-10-12). The "Wi-Fi or cellular" option is shown
+  only while the vehicle has a connectivity subscription; otherwise the setting is hidden and the policy
+  treats the vehicle as Wi-Fi only even if the stored value says cellular. Applies to scheduled and manual
+  downloads alike.
 
 ## Deferred
 

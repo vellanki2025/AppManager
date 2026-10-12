@@ -14,13 +14,19 @@ enum class RunPhase { IDLE, RUNNING, WAITING }
 
 data class BatteryState(val levelPercent: Int, val charging: Boolean)
 data class NetworkState(val transport: NetworkTransport, val metered: Boolean, val validated: Boolean)
-data class DeviceState(val battery: BatteryState, val network: NetworkState, val driving: DrivingState)
+data class DeviceState(
+    val battery: BatteryState,
+    val network: NetworkState,
+    val driving: DrivingState,
+    /** The vehicle has a connectivity subscription. Without it, cellular is never used whatever the setting says. */
+    val cellularSubscribed: Boolean = false,
+)
 data class Progress(val downloaded: Long, val total: Long?)
 
 /** User-adjustable policy and schedule settings. Persisted by [com.lucid.appstore.download.config.ConfigRepository]. */
 data class Config(
     val scheduleTime: LocalTime = LocalTime.of(2, 0),
-    /** Tethered networks (metered Wi-Fi hotspot, Bluetooth) are always blocked. */
+    /** Tethered networks are always blocked. WIFI_OR_CELLULAR takes effect only with a connectivity subscription. */
     val networkMode: NetworkMode = NetworkMode.WIFI_ONLY,
     val batteryThresholdPercent: Int = 20,
     /** After a battery wait the level must reach threshold + margin before resuming. */

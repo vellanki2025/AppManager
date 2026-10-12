@@ -103,5 +103,6 @@ class AppStoreDownloadService : Service() {
         charging = d?.battery?.charging ?: false,
         networkClass = d?.let { NetworkClassifier.classify(it.network).name } ?: "",
         networkValidated = d?.network?.validated ?: false,
+        cellularSubscribed = d?.cellularSubscribed ?: false,
     )
 }

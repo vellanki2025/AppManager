@@ -77,10 +77,14 @@ private fun RunCard(s: DownloadStatus?, c: DownloadConfig?, update: Update, onRu
 private fun NetworkCard(s: DownloadStatus?, c: DownloadConfig?, update: Update) {
     Section("Network") {
         Text("Current: " + (s?.networkClass?.ifEmpty { null }?.let { it + if (s.networkValidated) "" else " (no internet)" } ?: "unknown"))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            NETWORK_MODES.forEach { (mode, label) ->
-                FilterChip(selected = c?.networkMode == mode, onClick = { update { it.copy(networkMode = mode) } }, label = { Text(label) }, enabled = c != null)
+        if (s?.cellularSubscribed == true) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                NETWORK_MODES.forEach { (mode, label) ->
+                    FilterChip(selected = c?.networkMode == mode, onClick = { update { it.copy(networkMode = mode) } }, label = { Text(label) }, enabled = c != null)
+                }
             }
+        } else {
+            Text("Wi-Fi only. Cellular needs a connectivity subscription.", style = MaterialTheme.typography.bodySmall)
         }
         Text("Hotspots and Bluetooth tethering are never used.", style = MaterialTheme.typography.bodySmall)
     }

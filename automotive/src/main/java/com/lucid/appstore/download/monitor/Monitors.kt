@@ -25,6 +25,9 @@ interface BatteryMonitor { val battery: Flow<BatteryState> }
 /** Active network transport, metered and validated flags. */
 interface NetworkMonitor { val network: Flow<NetworkState> }
 
+/** Whether the vehicle has a connectivity (cellular data) subscription. Gates the cellular option. */
+interface ConnectivitySubscriptionProvider { val subscribed: Flow<Boolean> }
+
 interface DeviceStateMonitor {
     /** Combined, conflated. */
     val state: Flow<DeviceState>
@@ -37,9 +40,10 @@ class DefaultDeviceStateMonitor(
     battery: BatteryMonitor,
     network: NetworkMonitor,
     driving: DrivingStateProvider,
+    subscription: ConnectivitySubscriptionProvider,
 ) : DeviceStateMonitor {
     override val state: Flow<DeviceState> =
-        combine(battery.battery, network.network, driving.driving) { b, n, d -> DeviceState(b, n, d) }
+        combine(battery.battery, network.network, driving.driving, subscription.subscribed) { b, n, d, s -> DeviceState(b, n, d, s) }
             .distinctUntilChanged()
             .conflate()
 

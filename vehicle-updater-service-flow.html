@@ -128,6 +128,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
       <li>Can the head unit wake at 1 AM (for example Garage Mode on Android Automotive)? If not, the automatic update runs in the first parked period after 1 AM instead.</li>
       <li>Updates are per vehicle, not per profile. The service runs in the system user. Primary and secondary profiles can use Update now; guest is view-only.</li>
       <li>Automatic downloads need a parked vehicle, WiFi, battery and storage. Automatic installs also need the 1 AM window, an idle vehicle (ignition off), and the app's install rules.</li>
+      <li>Decided 2026-10-12: cellular consent lives in Settings, not in the Update now flow. The "WiFi or cellular" option is shown only when the vehicle has a connectivity subscription; without one, downloads are WiFi only.</li>
     </ul>
   </div>
 </main>
@@ -336,7 +337,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
       {f:'hmi',t:'svc',x:'updateNow(appId)'},
       {f:'svc',t:'net',x:'Active network: validated? metered? captive portal? speed?'},
       {f:'net',t:'svc',x:'Public WiFi, validated, about 0.8 Mbps',r:1},
-      {note:'Captive portal (login page) or no internet counts as no network. HMI: "Connect to the internet to update." Cellular or metered: the HMI asks first and shows the download size.',a:'hmi',b:'net'},
+      {note:'Captive portal (login page) or no internet counts as no network. HMI: "Connect to the internet to update." Cellular is used only when the Settings option is on, which needs a connectivity subscription; there is no prompt here. Hotspots and Bluetooth tethering are never used.',a:'hmi',b:'net'},
       {f:'svc',t:'svc',x:'Usable but slow: 25 MB at 0.8 Mbps is about 4 min'},
       {f:'svc',t:'hmi',x:'onProgress(percent, about 4 min left)',r:1},
       {f:'svc',t:'cloud',x:'GET /v1/manifestapks'},
@@ -579,7 +580,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
   table('rtbl',['Condition','1 AM automatic update','Update now'],[
     ['When','Download: any time the checks pass. Install: only in the 1 to 5 AM window (vehicle local time), starting with random jitter.','Any time the user taps Update now. The install follows the install rules.'],
     ['Vehicle state','Driving: strictly no download and no install. Download: parked; pauses when driving starts and resumes after Park for 10 seconds. Install: parked and ignition off; pause if a door opens or the ignition turns on.','Driving: strictly no download and no install. Parked (Park for 10 seconds): download, then install. A running commit is never interrupted.'],
-    ['Network','WiFi that is validated and not metered, at least 2 Mbps.','Any validated network. Metered or cellular: ask first and show the size. Slow: continue and show an estimate. Stalled 60 s: pause and resume.'],
+    ['Network','WiFi that is validated and not metered, at least 2 Mbps. Cellular only if the Settings option "WiFi or cellular" is on; that option exists only with a connectivity subscription.','Same network rule as automatic: WiFi, or cellular when the Settings option is on and the vehicle has a subscription. No prompt at download time. Hotspots and Bluetooth tethering never. Slow: continue and show an estimate. Stalled 60 s: pause and resume.'],
     ['Public WiFi and captive portal','A captive portal counts as no network. An untrusted network is acceptable because the APK is protected by signatures and hashes.','Same. The HMI says "Connect to the internet to update."'],
     ['Battery','HV battery at least 30% or charging, and 12V above its minimum.','Download needs at least 10%. Install needs at least 20% or a charger connected.'],
     ['Storage','Free space at least 2x the APK size. If short and an app is already downloaded, install it first (if its rules allow) and delete its APK, then download. Otherwise HELD (low_storage).','Same. The HMI says "Not enough storage" if it is still short. See diagram 12.'],
