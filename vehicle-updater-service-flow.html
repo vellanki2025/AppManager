@@ -80,7 +80,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
 
   <section class="panel" id="p-aiu">
     <h2>What the user sees when an app is updated</h2>
-    <p class="sub">The service decides only from vehicle state: a fixed baseline (driving: never install; parked: install, with a message on the HMI) plus per-app install rules from the manifest, such as "not in egress mode". It does not ask individual apps, or the system, what an app is doing.</p>
+    <p class="sub">The service decides only from vehicle state: a fixed baseline (driving: never download or install; parked: download, then install with a message on the HMI) plus per-app install rules from the manifest, such as "not in egress mode". It does not ask individual apps, or the system, what an app is doing.</p>
     <h3>If the car switches to driving during an update</h3>
     <div class="tw"><table id="drvtbl"></table></div>
     <h3 style="margin-top:22px">What the user sees</h3>
@@ -119,7 +119,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
     <h3>Assumptions to confirm</h3>
     <ul>
       <li>Egress mode: I treated it as a vehicle mode the updater can read, reported by a vehicle signal. Please confirm what it is and which signal reports it. Other blocked modes can use the same rule.</li>
-      <li>Downloads can happen any time: automatic downloads need WiFi, battery and storage, but not the 1 AM window or a parked vehicle. This changes the earlier rule where an automatic download paused when driving started. Only the install is gated.</li>
+      <li>Decided 2026-10-12: driving blocks both download and install. A download in progress pauses when driving starts, keeps its partial file and offset, and resumes after the gear has been in Park for 10 seconds. Downloads do not need the 1 AM window; installs do.</li>
       <li>Manifest install rules can only add limits. The driving rule and battery minimum cannot be loosened by a manifest.</li>
       <li>When space is short, an app that is already downloaded is installed first (if its rules allow) and its APK deleted. An APK that has not been installed is never deleted to make space, except when a newer version of the same app replaces it.</li>
       <li>Vehicle state is the only gate for installs, apart from the manifest rules: driving is a strict no, parked is allowed. The service never asks apps what they are doing, so Navigation or music can stop when an update installs while parked. Tapping Update now counts as the user's consent, and the message appears when the install starts, with no countdown.</li>
@@ -127,7 +127,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
       <li>All numbers are placeholders: window 1 to 5 AM local time, auto needs WiFi of at least 2 Mbps, auto needs HV battery of at least 30% or charging, Update now needs at least 10% to download and 20% or charging to install, 12V minimum from the vehicle power team, free space of 2x the APK size, stall timeout 60 s, Park debounce 10 s.</li>
       <li>Can the head unit wake at 1 AM (for example Garage Mode on Android Automotive)? If not, the automatic update runs in the first parked period after 1 AM instead.</li>
       <li>Updates are per vehicle, not per profile. The service runs in the system user. Primary and secondary profiles can use Update now; guest is view-only.</li>
-      <li>Automatic downloads need WiFi, battery and storage. Automatic installs also need the 1 AM window, a parked and idle vehicle, and the app's install rules.</li>
+      <li>Automatic downloads need a parked vehicle, WiFi, battery and storage. Automatic installs also need the 1 AM window, an idle vehicle (ignition off), and the app's install rules.</li>
     </ul>
   </div>
 </main>
@@ -202,14 +202,14 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
       {f:'cloud',t:'svc',x:'Signed manifest: update list per app (versionName, versionCode, size, installRules)',r:1},
       {f:'svc',t:'svc',x:'Verify manifest signature. Drop apps not installed and versionCode not higher.'},
       {f:'svc',t:'db',x:'Save updates as AVAILABLE with their installRules; queue event update_available'},
-      {note:'Automatic: the download starts whenever the checks pass; the install waits for the 1 AM window (diagram 3). Update now is always available from the HMI (diagram 4).',a:'trig',b:'cloud'}
+      {note:'Automatic: the download starts whenever the checks pass, including parked; the install waits for the 1 AM window (diagram 3). Update now is always available from the HMI (diagram 4).',a:'trig',b:'cloud'}
      ]},
     {tab:'3 Auto update',title:'Automatic update: download any time, install at 1 AM',
-     blurb:'Downloads are not tied to the time of day or to vehicle state. Only the install is gated: the 1 AM window, a parked and idle vehicle, and the app installRules from the manifest.',
+     blurb:'Downloads are not tied to the time of day but need a parked vehicle; they pause while driving. The install is gated further: the 1 AM window, an idle vehicle, and the app installRules from the manifest.',
      parts:['sched','svc','veh','pol','cloud','dl','pi'],colW:185,
      msgs:[
-      {note:'Phase 1: download (any time)'},
-      {f:'svc',t:'pol',x:'Auto ON, WiFi validated and not metered, battery above floor, enough storage?'},
+      {note:'Phase 1: download (any time the vehicle is parked)'},
+      {f:'svc',t:'pol',x:'Auto ON, parked, WiFi validated and not metered, battery above floor, enough storage?'},
       {f:'pol',t:'svc',x:'Yes',r:1},
       {f:'svc',t:'cloud',x:'GET /v1/manifestapks (appId, versionCode)'},
       {f:'cloud',t:'svc',x:'Signed URL, SHA-256, size',r:1},
@@ -229,7 +229,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
       {note:'No HMI message at night. At the next ignition-on the HMI shows one line: "Media updated to 4.1.0".'}
      ]},
     {tab:'4 Update now',title:'Update now (user taps Update now)',
-     blurb:'Pre-flight checks run first. Download can start in most conditions; the install has stricter rules. Any primary or secondary profile can start it, and it updates the whole vehicle.',
+     blurb:'Pre-flight checks run first. Neither download nor install runs while driving; the install has further rules. Any primary or secondary profile can start it, and it updates the whole vehicle.',
      parts:['hmi','svc','veh','pol','cloud','dl','pi'],colW:185,
      msgs:[
       {f:'hmi',t:'svc',x:'updateNow(appId) (manual)'},
@@ -253,12 +253,15 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
       {note:'If a check fails, the update is HELD with a reason (driving, install rule, low battery, poor network) and the HMI says why. The diagrams under Conditions that change show each case.',a:'hmi',b:'pi'}
      ]},
     {tab:'5 Driving: auto update',title:'The car is driven during an automatic update',
-     blurb:'Downloads are not gated by vehicle state, so they carry on. Nothing installs while driving, and a commit that has already started is allowed to finish.',
+     blurb:'Driving blocks both download and install. A download pauses and resumes after Park for 10 seconds. Nothing installs while driving, and a commit that has already started is allowed to finish.',
      parts:['veh','svc','dl','db','pi','hmi'],
      msgs:[
       {note:'Case A: driving starts while an update is downloading'},
       {f:'veh',t:'svc',x:'Ignition on, then gear to Drive'},
-      {f:'svc',t:'dl',x:'Keep downloading (not tied to vehicle state)'},
+      {f:'svc',t:'dl',x:'Pause the download; keep the partial file and offset'},
+      {f:'svc',t:'db',x:'State HELD (driving); queue update_held'},
+      {f:'veh',t:'svc',x:'Gear in Park for 10 seconds'},
+      {f:'svc',t:'dl',x:'Resume from the saved offset; queue update_resumed'},
       {note:'Case B: driving starts during the 1 AM window, before the install'},
       {f:'svc',t:'veh',x:'Read the gear just before the install'},
       {f:'veh',t:'svc',x:'Drive',r:1},
@@ -274,19 +277,22 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
       {note:'HMI: "Updating Media. It will restart." until the install finishes, then "Media updated to 4.1.0". The commit is never stopped. It takes seconds and finishes safely.'}
      ]},
     {tab:'6 Driving: Update now',title:'The user starts driving during Update now',
-     blurb:'Rule: no install while driving, with no exceptions. The download may continue because the user asked for the update. The install waits for Park.',
+     blurb:'Rule: no download and no install while driving, with no exceptions. Both wait for the gear to be in Park for 10 seconds.',
      parts:['hmi','svc','veh','dl','pi'],
      msgs:[
-      {note:'If the user taps Update now while already driving, the HMI offers "Download now, install when parked".',a:'hmi',b:'pi'},
+      {note:'If the user taps Update now while already driving, the HMI says "Update starts when you park." Nothing downloads until then.',a:'hmi',b:'pi'},
       {f:'hmi',t:'svc',x:'updateNow(appId)'},
       {f:'svc',t:'dl',x:'Start download'},
       {note:'Case A: driving starts during the download',a:'hmi',b:'pi'},
       {f:'veh',t:'svc',x:'Gear changes to Drive'},
-      {f:'svc',t:'svc',x:'Keep downloading. Only the install is held while driving.'},
-      {f:'dl',t:'svc',x:'Download complete',r:1},
-      {f:'svc',t:'svc',x:'Verify. State READY but HELD (driving); queue update_held.'},
+      {f:'svc',t:'dl',x:'Pause the download; keep the partial file and offset'},
+      {f:'svc',t:'svc',x:'State HELD (driving); queue update_held.'},
       {f:'svc',t:'hmi',x:'onStateChanged(HELD, driving)',r:1},
-      {note:'HMI while driving: one glance-only line, "Downloaded. Installs when you park." No buttons that need attention.',a:'hmi',b:'svc'},
+      {note:'HMI while driving: one glance-only line, "Paused. Continues when you park." No buttons that need attention.',a:'hmi',b:'svc'},
+      {f:'veh',t:'svc',x:'Gear in Park for 10 seconds'},
+      {f:'svc',t:'dl',x:'Resume from the saved offset; queue update_resumed'},
+      {f:'dl',t:'svc',x:'Download complete',r:1},
+      {f:'svc',t:'svc',x:'Verify. State READY.'},
       {note:'Case B: driving starts again at the last moment before the install',a:'hmi',b:'pi'},
       {f:'veh',t:'svc',x:'Gear in Park for 10 seconds'},
       {f:'svc',t:'svc',x:'Run the checks again: battery, network, installRules. Queue update_resumed.'},
@@ -360,7 +366,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
       {note:'Case C: the car wakes up during the install window'},
       {f:'veh',t:'svc',x:'Door opens or ignition on'},
       {f:'svc',t:'db',x:'READY updates stay HELD (vehicle_active); queue update_held'},
-      {note:'Installs are tried again in the next window. Downloads carry on as normal.'},
+      {note:'Installs are tried again in the next window. Downloads carry on unless the vehicle is driven.'},
       {note:'Case D: the install fails'},
       {f:'svc',t:'pi',x:'Commit install session'},
       {f:'pi',t:'svc',x:'FAILURE (for example signature or downgrade error)',r:1},
@@ -395,7 +401,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
       {note:'A failed install leaves the old version in place. Permanent failures (signature, downgrade) show "Update not available" and do not offer Try again until a new manifest arrives.',a:'hmi',b:'cloud'}
      ]},
     {tab:'11 Per-app install rules',title:'Per-app install rules from the manifest',
-     blurb:'The Release Manager sets when each app may be installed. Rules travel in the signed manifest and are saved with the update. They gate only the install: downloads can happen any time. Evaluated in the 1 AM window (auto) or after an Update now download.',
+     blurb:'The Release Manager sets when each app may be installed. Rules travel in the signed manifest and are saved with the update. They gate only the install; downloads are gated by vehicle state, network, battery and storage, never by manifest rules. Evaluated in the 1 AM window (auto) or after an Update now download.',
      parts:['svc','db','veh','pol','hmi','pi'],colW:185,
      msgs:[
       {f:'svc',t:'db',x:'Load READY updates and their installRules (saved from /v1/manifest)'},
@@ -551,17 +557,17 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
   /* ---------- App in use table ---------- */
   table('drvtbl',['Stage when driving starts','1 AM automatic update','Update now'],[
     ['Checking for updates','Not affected. A check is a small request.','Not affected.'],
-    ['Downloading','Not affected. Downloads are not tied to vehicle state.','The download continues. The HMI shows "Downloaded. Installs when you park." when it is done.'],
+    ['Downloading','Paused, HELD (driving). Resumes from the saved offset after Park for 10 seconds.','Paused the same way. The HMI shows "Paused. Continues when you park."'],
     ['Verifying','Finish the check (seconds), then HELD (driving).','Finish the check, then HELD (driving).'],
     ['Ready, waiting to install','Stays HELD. Tries again in the next window.','Stays HELD until the gear has been in Park for 10 seconds, then installs.'],
     ['Just before the commit','Read the gear one last time. Drive: HELD and nothing installs.','Same.'],
     ['Commit running','Not interrupted. It finishes in seconds. The HMI shows the install message until it is done.','Same.']
   ]);
   table('aiutbl',['Situation','What the user sees','What the service does'],[
-    ['Driving, any update','Update now: "Downloaded. Installs when you park." Nothing else.','Never installs while driving. The download may continue. The update is HELD (driving).'],
+    ['Driving, any update','Update now: "Paused. Continues when you park." Nothing else.','Never downloads or installs while driving. A download in progress pauses. The update is HELD (driving).'],
     ['Parked, the user taps Update now','"Updating Media. It will restart." for a few seconds, then "Media updated to 4.1.0".','Installs once the gear has been in Park for 10 seconds. It does not check what any app is doing.'],
     ['Parked, and Navigation or music is running','The same message. The app stops and restarts with the new version.','Same as above. This is the accepted trade-off of using vehicle state only.'],
-    ['The car starts while an update is ready','"Downloaded. Installs when you park."','The update stays HELD (driving) until the car is parked again.'],
+    ['The car starts while an update is ready','"Downloaded. Installs when you park."','The update stays HELD (driving) until the gear has been in Park for 10 seconds.'],
     ['The car starts during the few seconds of the install','The message stays until the install finishes, then "Media updated to 4.1.0".','Does not interrupt a running commit. It finishes safely.'],
     ['An app has an install rule that blocks it (for example egress mode)','Update now: "Navigation installs when the vehicle leaves egress mode." Other apps update as normal.','The update stays downloaded and HELD (install_rule). It installs when the rule allows. See diagram 11.'],
     ['The 1 AM automatic update','Nothing at night. At the next ignition-on: "Media updated to 4.1.0".','Runs only when parked and ignition off. Installs silently.'],
@@ -572,7 +578,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
   /* ---------- Rules table ---------- */
   table('rtbl',['Condition','1 AM automatic update','Update now'],[
     ['When','Download: any time the checks pass. Install: only in the 1 to 5 AM window (vehicle local time), starting with random jitter.','Any time the user taps Update now. The install follows the install rules.'],
-    ['Vehicle state','Download: not tied to vehicle state. Install: parked and ignition off; pause if a door opens or the ignition turns on. Driving: strictly no install.','Download in any state. Driving: strictly no install. Parked (Park for 10 seconds): install. A running commit is never interrupted.'],
+    ['Vehicle state','Driving: strictly no download and no install. Download: parked; pauses when driving starts and resumes after Park for 10 seconds. Install: parked and ignition off; pause if a door opens or the ignition turns on.','Driving: strictly no download and no install. Parked (Park for 10 seconds): download, then install. A running commit is never interrupted.'],
     ['Network','WiFi that is validated and not metered, at least 2 Mbps.','Any validated network. Metered or cellular: ask first and show the size. Slow: continue and show an estimate. Stalled 60 s: pause and resume.'],
     ['Public WiFi and captive portal','A captive portal counts as no network. An untrusted network is acceptable because the APK is protected by signatures and hashes.','Same. The HMI says "Connect to the internet to update."'],
     ['Battery','HV battery at least 30% or charging, and 12V above its minimum.','Download needs at least 10%. Install needs at least 20% or a charger connected.'],
