@@ -86,6 +86,13 @@ Open the app on an AAOS image to see the status screen: run phase, vehicle signa
 feature flag, "Run now" and the event log. The `FakeDownloadEngine` simulates 600 MB over two minutes and
 keeps its offset across pauses within the process.
 
+## Decisions
+
+- **Driving blocks both download and install** (2026-10-12). The download gate keeps the driving rule as its
+  first check and pauses a running transfer when the vehicle leaves PARKED. The install phase applies the same
+  rule. This supersedes the "downloads are not tied to vehicle state" assumption in
+  `vehicle-updater-service-flow.html`.
+
 ## Deferred
 
 The real `DownloadEngine`, retries, integrity, storage rule and failure notifications are the next phase
