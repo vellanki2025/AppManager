@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "LucidAppStore"
+rootProject.name = "LucidAppManager"
 include(":automotive")

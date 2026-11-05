@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Debug-only additions (FR-54 .. FR-57).
+
+    `android:name` replaces the Application with DebugApplication, which subclasses the production one and
+    decorates its dependencies. This is the seam that lets debug reach into the running service while
+    src/main never names anything in the debug package.
+
+    DebugActionReceiver is exported but gated on android.permission.DUMP, which is deliberate and is not
+    the same as being open:
+
+      * A NON-exported receiver cannot be reached by adb at all. `am broadcast` runs as the shell uid, and
+        the platform silently drops a cross-uid delivery to a non-exported component - the command still
+        prints "result=0" because that only means "enqueued". Verified on an emulator, not assumed.
+      * DUMP is a signature|privileged permission held by the shell and the system, and not grantable to a
+        normal app. So adb can drive the actions and other apps on the system still cannot, which is the
+        property FR-55 actually wants: this app installs packages, and its installer must not be drivable
+        by anything else on the device.
+
+    Neither class exists in a release build: this manifest and src/debug are not part of that variant.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application
+        android:name=".debug.DebugApplication"
+        tools:replace="android:name">
+
+        <receiver
+            android:name=".debug.DebugActionReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+    </application>
+</manifest>

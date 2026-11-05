@@ -1,7 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-feature android:name="android.hardware.type.automotive" android:required="true" />
+    <!--
+        PACKAGE VISIBILITY (Android 11 / API 30+)
+
+        Required, not optional. The catalogue is server-driven, so the packages to inspect are unknown at
+        build time and a static <queries> list would cap the catalogue at whatever was known when the APK
+        shipped.
+
+        Without it getPackageInfo() throws NameNotFoundException for every other package, and three
+        requirements degrade silently rather than failing loudly:
+          FR-29 the up-to-date short-circuit never fires, so every run re-downloads
+          FR-40 every app looks like a first install, so the signature check is skipped - a security hole
+          FR-44 an install cannot be confirmed by re-reading the versionCode
+    -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -11,12 +28,12 @@
 
     <!-- Clients binding to the download service must be platform-signed or privileged. -->
     <permission
-        android:name="com.lucid.appstore.permission.BIND_DOWNLOAD_SERVICE"
+        android:name="com.lucid.appmanager.permission.BIND_DOWNLOAD_SERVICE"
         android:protectionLevel="signature|privileged" />
-    <uses-permission android:name="com.lucid.appstore.permission.BIND_DOWNLOAD_SERVICE" />
+    <uses-permission android:name="com.lucid.appmanager.permission.BIND_DOWNLOAD_SERVICE" />
 
     <application
-        android:name=".AppStoreApplication"
+        android:name=".AppManagerApplication"
         android:label="@string/app_name"
         android:theme="@android:style/Theme.Material.NoActionBar">
 
@@ -31,13 +48,32 @@
 
         <!-- AIDL surface for the UI and other store clients. -->
         <service
-            android:name=".ipc.AppStoreDownloadService"
+            android:name=".ipc.AppManagerDownloadService"
             android:exported="true"
-            android:permission="com.lucid.appstore.permission.BIND_DOWNLOAD_SERVICE">
+            android:permission="com.lucid.appmanager.permission.BIND_DOWNLOAD_SERVICE">
             <intent-filter>
-                <action android:name="com.lucid.appstore.IAppStoreDownloadService" />
+                <action android:name="com.lucid.appmanager.IAppManagerDownloadService" />
             </intent-filter>
         </service>
+
+        <!--
+            WorkManager runs the download as a dataSync foreground service. Declaring the type here is
+            required from API 34 and is a FATAL lint check, so without it `assembleRelease` fails while
+            `assembleDebug` stays green - lintVital only runs on release.
+        -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
+
+        <!--
+            Receives the PackageInstaller session result. Not exported: this app installs packages, so
+            nothing else on the device may drive or spoof its installer callbacks. Without this entry the
+            commit PendingIntent has no component to deliver to and the install hangs until it times out.
+        -->
+        <receiver
+            android:name=".install.InstallResultReceiver"
+            android:exported="false" />
 
         <!-- Handles the Cancel action on the progress and waiting notifications. -->
         <receiver
