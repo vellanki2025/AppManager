@@ -1,0 +1,817 @@
+<title>AppManager Run Simulator</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: stepper + live pipeline diagram up top, bench controls and run state side by side,
+   then the active step's detail and a logcat-shaped event log. Nothing stacks as a document. */
+:root {
+  --bg:#f3f5f8; --panel:#ffffff; --panel2:#e8edf3;
+  --fg:#101820; --muted:#5a6675; --faint:#8b97a6;
+  --line:#ccd5e0; --soft:#dde4ec;
+  --accent:#00688a; --accentbg:#dff0f6;
+  --ok:#12694200; --okc:#126942; --okbg:#e2f1e8;
+  --warn:#845309; --warnbg:#f8eedb;
+  --bad:#a52a26; --badbg:#fae8e7;
+  --code:#0e1620; --codefg:#dae5f0;
+  --d:"Archivo","Helvetica Neue",system-ui,sans-serif;
+  --b:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
+  --m:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:#0a1015; --panel:#131b23; --panel2:#1b242e;
+    --fg:#e6edf4; --muted:#92a1b1; --faint:#6b7a8a;
+    --line:#2a3744; --soft:#212c37;
+    --accent:#45b9d9; --accentbg:#0f303c;
+    --okc:#53cb8b; --okbg:#112f1e;
+    --warn:#e3aa44; --warnbg:#332408;
+    --bad:#f2766e; --badbg:#37171a;
+    --code:#070c11; --codefg:#cfdcea;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg:#0a1015; --panel:#131b23; --panel2:#1b242e;
+  --fg:#e6edf4; --muted:#92a1b1; --faint:#6b7a8a;
+  --line:#2a3744; --soft:#212c37;
+  --accent:#45b9d9; --accentbg:#0f303c;
+  --okc:#53cb8b; --okbg:#112f1e;
+  --warn:#e3aa44; --warnbg:#332408;
+  --bad:#f2766e; --badbg:#37171a;
+  --code:#070c11; --codefg:#cfdcea;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--b);font-size:15px;line-height:1.5}
+.wrap{max-width:1100px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:26px 48px}
+h1,h2{font-family:var(--d);margin:0;letter-spacing:-.015em;text-wrap:balance}
+h1{font-size:clamp(23px,4.2vw,30px);font-weight:700;line-height:1.1}
+h2{font-size:14.5px;font-weight:700}
+p{margin:0}
+code{font-family:var(--m);font-size:.875em}
+.eyebrow{font-family:var(--m);font-size:10.5px;font-weight:500;letter-spacing:.11em;text-transform:uppercase;color:var(--accent);margin-bottom:9px}
+header p{color:var(--muted);margin-top:7px;max-width:70ch;font-size:14.5px}
+.card{background:var(--panel);border:1px solid var(--soft);border-radius:8px;padding:14px 16px;margin-top:14px}
+.muted{color:var(--muted)}
+.small{font-size:12.8px}
+.mono{font-family:var(--m)}
+button{font:inherit;font-size:13.5px;border-radius:6px;padding:7px 13px;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--fg)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button:hover:not([disabled]){border-color:var(--accent)}
+button[disabled]{opacity:.45;cursor:default}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+select,input[type=number]{font:inherit;font-size:13px;padding:5px 7px;border-radius:5px;border:1px solid var(--line);background:var(--panel);color:var(--fg);max-width:100%}
+
+/* stepper */
+.dots{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px}
+.dot{width:27px;height:27px;padding:0;border-radius:50%;border:1px solid var(--line);background:var(--panel);display:flex;align-items:center;justify-content:center;font-family:var(--m);font-size:11.5px;color:var(--faint);cursor:default}
+.dot.done{background:var(--okbg);color:var(--okc);border-color:var(--okc);cursor:pointer}
+.dot.cur{background:var(--accentbg);color:var(--accent);border-color:var(--accent);font-weight:700}
+.dot.skip{opacity:.4}
+.steprow{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.steprow .txt{flex:1;min-width:230px}
+.steprow .txt b{display:block;font-family:var(--d);font-size:14.5px}
+.acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+/* diagram */
+.diagram{overflow-x:auto;padding:4px}
+.diagram svg{min-width:720px;width:100%;height:auto;display:block}
+.node rect{fill:var(--panel);stroke:var(--line);stroke-width:1.4}
+.node text{fill:var(--fg);font-family:var(--d);font-size:12.5px;font-weight:600;text-anchor:middle}
+.node text.sub{fill:var(--muted);font-family:var(--b);font-size:10px;font-weight:400}
+.node.gate rect{fill:var(--panel2);stroke-dasharray:4 3}
+.node.on rect{stroke:var(--accent);stroke-width:2.4;fill:var(--accentbg)}
+.node.ok rect{stroke:var(--okc);stroke-width:2.4;fill:var(--okbg)}
+.node.wait rect{stroke:var(--warn);stroke-width:2.4;fill:var(--warnbg)}
+.node.bad rect{stroke:var(--bad);stroke-width:2.4;fill:var(--badbg)}
+.node.past rect{stroke:var(--okc);stroke-width:1.4}
+.edge{fill:none;stroke:var(--line);stroke-width:1.5;marker-end:url(#ah)}
+.edge.on{stroke:var(--accent);stroke-width:2.4;stroke-dasharray:6 4;marker-end:url(#ahOn);animation:dash .8s linear infinite}
+@keyframes dash{to{stroke-dashoffset:-20}}
+.badge circle{fill:var(--panel);stroke:var(--line);stroke-width:1.2}
+.badge text{fill:var(--faint);font-family:var(--m);font-size:10px;font-weight:600;text-anchor:middle}
+.badge.on circle{fill:var(--accent);stroke:var(--accent)}
+.badge.on text{fill:#fff}
+.resume{fill:none;stroke:var(--accent);stroke-width:1.4;stroke-dasharray:5 4;marker-end:url(#ahOn);opacity:.45}
+.resume.on{opacity:1}
+.rlbl{fill:var(--accent);font-family:var(--b);font-size:9.5px;font-weight:600;opacity:.5}
+.rlbl.on{opacity:1}
+
+/* columns */
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.cols3{display:grid;grid-template-columns:1.15fr 1fr;gap:14px}
+@media (max-width:860px){.cols,.cols3{grid-template-columns:1fr}}
+.cols .card,.cols3 .card{margin-top:0}
+.ctl{display:grid;grid-template-columns:minmax(96px,auto) 1fr;gap:7px 10px;align-items:center;font-size:13px}
+.ctl label{color:var(--muted)}
+.ctl .inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.kv{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--soft);font-size:13px}
+.kv:last-child{border-bottom:0}
+.kv span:first-child{color:var(--muted)}
+.kv b{font-family:var(--m);font-weight:500;font-size:12.5px;text-align:right;overflow-wrap:anywhere}
+
+/* events + detail */
+.ev{display:inline-block;font-family:var(--m);font-size:11px;font-weight:500;padding:2px 7px;border-radius:3px;background:var(--panel2);color:var(--muted);border:1px solid var(--soft)}
+.ev.go{background:var(--accentbg);color:var(--accent);border-color:transparent}
+.ev.ok{background:var(--okbg);color:var(--okc);border-color:transparent}
+.ev.wait{background:var(--warnbg);color:var(--warn);border-color:transparent}
+.ev.bad{background:var(--badbg);color:var(--bad);border-color:transparent}
+.evrow{display:flex;flex-wrap:wrap;gap:5px;margin:9px 0}
+.sublabel{font-family:var(--m);font-size:10px;font-weight:500;letter-spacing:.11em;text-transform:uppercase;color:var(--faint);margin:14px 0 6px}
+.what{color:var(--muted);font-size:13.8px}
+.what strong{color:var(--fg);font-weight:600}
+.verdict{border-left:3px solid var(--accent);background:var(--accentbg);padding:9px 13px;border-radius:0 5px 5px 0;font-size:13.3px;margin-top:10px}
+.verdict.wait{border-left-color:var(--warn);background:var(--warnbg)}
+.verdict.bad{border-left-color:var(--bad);background:var(--badbg)}
+.verdict.ok{border-left-color:var(--okc);background:var(--okbg)}
+
+/* code */
+.cmd{position:relative;margin-top:8px}
+.cmd pre{margin:0;background:var(--code);color:var(--codefg);border-radius:6px;padding:11px 52px 11px 13px;overflow-x:auto;font-family:var(--m);font-size:12px;line-height:1.7;border:1px solid var(--soft)}
+.cmd .cp{position:absolute;top:7px;right:7px;font-family:var(--m);font-size:10px;letter-spacing:.06em;text-transform:uppercase;background:rgba(255,255,255,.1);color:#cfdcea;border:1px solid rgba(255,255,255,.18);border-radius:4px;padding:3px 7px}
+.cmd .cp:hover{background:rgba(255,255,255,.2)}
+pre .c{color:#7b90a6}
+
+/* log */
+#log{font-family:var(--m);font-size:11.5px;line-height:1.75;max-height:300px;overflow:auto;background:var(--code);color:var(--codefg);border-radius:6px;padding:10px 12px;border:1px solid var(--soft)}
+#log div{white-space:pre-wrap;overflow-wrap:anywhere}
+#log .t{color:#6f849a}
+#log .lg{color:#7fd4ef}
+#log .lw{color:#f0bd62}
+#log .le{color:#f58e86}
+#log .lo{color:#6fdca2}
+#log .dim{color:#7b90a6}
+.loghead{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-size:12.5px;color:var(--faint)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">LucidAppManager · com.lucid.appmanager</div>
+  <h1>Walk a download run, one event at a time</h1>
+  <p>Ten steps from the 02:00 trigger to an installed APK. Change the vehicle signals or inject a fault on
+     the left and the run branches the way the real <code>PolicyEvaluator</code> and
+     <code>RunCoordinator</code> would — blocking, pausing, failing verification, or skipping straight to
+     install. Every step shows the adb that provokes it on a bench.</p>
+</header>
+
+<noscript><div class="card">This page steps through a run, so it needs JavaScript.</div></noscript>
+
+<!-- stepper -->
+<section class="card" aria-label="Run steps">
+  <div class="dots" id="dots"></div>
+  <div class="small muted" style="margin:-2px 0 10px">Click a completed step to rewind to it.</div>
+  <div class="steprow">
+    <div class="txt"><b id="stepTitle"></b><span class="muted small" id="stepDesc"></span></div>
+    <div class="acts">
+      <button class="primary" id="next"></button>
+      <button id="recheck" hidden>Recheck in 15 min</button>
+      <button id="reset">Reset</button>
+    </div>
+  </div>
+</section>
+
+<!-- diagram -->
+<section class="card diagram" aria-label="Pipeline diagram">
+  <svg viewBox="0 0 860 372" role="img" aria-label="Pipeline: trigger, policy gate, resolve, storage gate, mint URL, transfer, verify, install gate, install, complete">
+    <defs>
+      <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" style="fill:var(--line)"/></marker>
+      <marker id="ahOn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" style="fill:var(--accent)"/></marker>
+    </defs>
+
+    <!-- row 1, left to right -->
+    <path class="edge" id="e1" d="M130 77 L158 77"/>
+    <path class="edge" id="e2" d="M288 77 L316 77"/>
+    <path class="edge" id="e3" d="M460 77 L488 77"/>
+    <path class="edge" id="e4" d="M618 77 L646 77"/>
+    <!-- wrap down to row 2 -->
+    <path class="edge" id="e5" d="M790 77 L822 77 L822 191 L794 191"/>
+    <!-- row 2, right to left -->
+    <path class="edge" id="e6" d="M646 191 L622 191"/>
+    <path class="edge" id="e7" d="M474 191 L454 191"/>
+    <!-- wrap down to row 3 -->
+    <path class="edge" id="e8" d="M310 191 L282 191 L282 305 L306 305"/>
+    <path class="edge" id="e9" d="M462 305 L490 305"/>
+
+    <!-- resume shortcut: install gate back to itself via the recheck -->
+    <path class="resume" id="rsm" d="M380 229 C380 262 300 258 268 240 C240 224 258 196 306 193"/>
+    <text class="rlbl" id="rsmL" x="396" y="250">recheck: apkPath on disk → skips ①–④</text>
+
+    <g class="node" id="n-trig"><rect x="18" y="46" width="112" height="62" rx="7"/><text x="74" y="72">Trigger</text><text class="sub" x="74" y="90">daily 02:00</text></g>
+    <g class="node gate" id="n-gate"><rect x="158" y="46" width="130" height="62" rx="7"/><text x="223" y="72">Policy gate</text><text class="sub" x="223" y="90">drive · batt · net</text></g>
+    <g class="node" id="n-res"><rect x="316" y="46" width="144" height="62" rx="7"/><text x="388" y="72">① Resolve</text><text class="sub" x="388" y="90">versionCode compare</text></g>
+    <g class="node gate" id="n-stor"><rect x="488" y="46" width="130" height="62" rx="7"/><text x="553" y="72">Storage</text><text class="sub" x="553" y="90">size + 10%</text></g>
+    <g class="node" id="n-url"><rect x="646" y="46" width="144" height="62" rx="7"/><text x="718" y="72">② Mint URL</text><text class="sub" x="718" y="90">30 min TTL</text></g>
+
+    <g class="node" id="n-xfer"><rect x="646" y="160" width="144" height="62" rx="7"/><text x="718" y="186">③ Transfer</text><text class="sub" x="718" y="204">Range resume</text></g>
+    <g class="node" id="n-ver"><rect x="474" y="160" width="148" height="62" rx="7"/><text x="548" y="186">④ Verify</text><text class="sub" x="548" y="204">size · parse · hash · signer</text></g>
+    <g class="node gate" id="n-gate2"><rect x="310" y="160" width="144" height="62" rx="7"/><text x="382" y="186">Policy gate</text><text class="sub" x="382" y="204">fresh snapshot</text></g>
+
+    <g class="node" id="n-inst"><rect x="306" y="274" width="156" height="62" rx="7"/><text x="384" y="300">⑤ Install</text><text class="sub" id="instSub" x="384" y="318">PACKAGE_MANAGER</text></g>
+    <g class="node" id="n-done"><rect x="490" y="274" width="144" height="62" rx="7"/><text x="562" y="300">Complete</text><text class="sub" x="562" y="318">DOWNLOAD_COMPLETE</text></g>
+
+    <g class="badge" id="b1"><circle cx="30" cy="52" r="9"/><text x="30" y="56">1</text></g>
+    <g class="badge" id="b2"><circle cx="170" cy="52" r="9"/><text x="170" y="56">2</text></g>
+    <g class="badge" id="b3"><circle cx="328" cy="52" r="9"/><text x="328" y="56">3</text></g>
+    <g class="badge" id="b4"><circle cx="500" cy="52" r="9"/><text x="500" y="56">4</text></g>
+    <g class="badge" id="b5"><circle cx="658" cy="52" r="9"/><text x="658" y="56">5</text></g>
+    <g class="badge" id="b6"><circle cx="658" cy="166" r="9"/><text x="658" y="170">6</text></g>
+    <g class="badge" id="b7"><circle cx="486" cy="166" r="9"/><text x="486" y="170">7</text></g>
+    <g class="badge" id="b8"><circle cx="322" cy="166" r="9"/><text x="322" y="170">8</text></g>
+    <g class="badge" id="b9"><circle cx="318" cy="280" r="9"/><text x="318" y="284">9</text></g>
+    <g class="badge" id="b10"><circle cx="502" cy="280" r="9"/><text x="502" y="284">10</text></g>
+  </svg>
+</section>
+
+<!-- controls + state -->
+<div class="cols3">
+  <section class="card" aria-label="Bench conditions">
+    <h2>Vehicle &amp; bench</h2>
+    <p class="small muted" style="margin:3px 0 11px">Changes apply to the next step you run.</p>
+    <div class="ctl">
+      <label for="cDrive">Driving</label>
+      <select id="cDrive"><option>PARKED</option><option>IDLING</option><option>MOVING</option><option>UNKNOWN</option></select>
+
+      <label for="cBatt">Battery</label>
+      <div class="inline">
+        <input id="cBatt" type="number" min="0" max="100" value="90" style="width:68px"> %
+        <label class="small"><input id="cChg" type="checkbox"> charging</label>
+      </div>
+
+      <label for="cNet">Network</label>
+      <select id="cNet"><option>UNMETERED_WIFI</option><option>METERED_WIFI</option><option>CELLULAR</option><option>BLUETOOTH_TETHER</option><option>NONE</option></select>
+
+      <label for="cMode">Network mode</label>
+      <div class="inline">
+        <select id="cMode"><option>WIFI_ONLY</option><option>WIFI_OR_CELLULAR</option></select>
+        <label class="small"><input id="cSub" type="checkbox"> subscription</label>
+      </div>
+
+      <label for="cFree">Free space</label>
+      <div class="inline"><input id="cFree" type="number" min="-1" value="4000" style="width:78px"> MB</div>
+
+      <label for="cSize">Artifact size</label>
+      <div class="inline"><input id="cSize" type="number" min="1" value="300" style="width:78px"> MB</div>
+
+      <label for="cOffer">Offered code</label>
+      <div class="inline">
+        <input id="cOffer" type="number" min="1" value="8" style="width:64px">
+        <span class="small muted">installed <b class="mono">7</b></span>
+      </div>
+
+      <label for="cInst">Install mode</label>
+      <select id="cInst"><option>PACKAGE_MANAGER</option><option>APK_OVERRIDE</option></select>
+
+      <label for="cFault">Inject fault</label>
+      <select id="cFault">
+        <option value="none">none</option>
+        <option value="disabled">kill switch off</option>
+        <option value="url_expire">URL expires mid-transfer</option>
+        <option value="url_exhaust">URL refetch rejected ×4</option>
+        <option value="http503">HTTP 503, then recovers</option>
+        <option value="http404">HTTP 404 (fatal)</option>
+        <option value="pause_mid">car drives off mid-transfer</option>
+        <option value="truncate">truncated download</option>
+        <option value="corrupt">corrupted bytes</option>
+        <option value="signature">APK signed by someone else</option>
+        <option value="notpriv">not privileged</option>
+        <option value="instfail">install commit fails</option>
+      </select>
+    </div>
+  </section>
+
+  <section class="card" aria-label="Run state">
+    <h2>RunState</h2>
+    <p class="small muted" style="margin:3px 0 11px">What <code>RunStateStore</code> would hold right now.</p>
+    <div class="kv"><span>runId</span><b id="sRun">—</b></div>
+    <div class="kv"><span>phase</span><b id="sPhase">IDLE</b></div>
+    <div class="kv"><span>artifactId</span><b id="sArt">null</b></div>
+    <div class="kv"><span>apkPath</span><b id="sApk">null</b></div>
+    <div class="kv"><span>waitReason</span><b id="sWait">null</b></div>
+    <div class="kv"><span>hasStarted</span><b id="sStart">false</b></div>
+    <div class="kv"><span>progress</span><b id="sProg">null</b></div>
+    <div class="kv"><span>lastSuccessAt</span><b id="sSucc">null</b></div>
+  </section>
+</div>
+
+<!-- this step -->
+<section class="card" id="detailCard" aria-label="Active step detail">
+  <h2 id="dTitle">Step 1 — Trigger</h2>
+  <div class="evrow" id="dEvents"></div>
+  <div class="what" id="dWhat"></div>
+  <div id="dVerdict"></div>
+  <div class="sublabel">How to provoke it on a bench</div>
+  <div class="cmd"><button class="cp" type="button" id="cpBtn">Copy</button><pre id="dCmd"></pre></div>
+</section>
+
+<!-- log -->
+<section class="card" aria-label="Event log">
+  <div class="loghead">
+    <h2 style="margin:0">adb logcat -s DlService</h2>
+    <span class="small muted" id="logCount">0 events</span>
+  </div>
+  <div id="log" aria-live="polite"></div>
+</section>
+
+<footer>
+  Behaviour mirrors <code>RunCoordinator</code>, <code>PolicyEvaluator</code>, <code>UrlSession</code>,
+  <code>IntegrityVerifier</code> and <code>EventType</code> at commit <code>81f3271</code>. Thresholds are
+  the real defaults: 20% battery (25% to resume after a battery block), 10% storage margin, 30 min URL TTL
+  with 3 re-mints, 5 HTTP attempts, two verify strikes. Stage ③ has never met a real server — no backend
+  exists yet.
+</footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+
+  var NODES = ["trig","gate","res","stor","url","xfer","ver","gate2","inst","done"];
+  var EDGES = ["e1","e2","e3","e4","e5","e6","e7","e8","e9"];
+
+  var STEPS = [
+    { n:"trig",  b:"b1",  e:null, t:"Trigger",
+      d:"daily_trigger fires and enqueues download_run" },
+    { n:"gate",  b:"b2",  e:"e1", t:"Policy gate",
+      d:"driving, battery, network — first failure wins" },
+    { n:"res",   b:"b3",  e:"e2", t:"① Resolve artifact",
+      d:"compare the offered versionCode against what is installed" },
+    { n:"stor",  b:"b4",  e:"e3", t:"Storage gate",
+      d:"the artifact plus a 10% margin has to fit" },
+    { n:"url",   b:"b5",  e:"e4", t:"② Mint the signed URL",
+      d:"requested only now, because the TTL is 30 minutes" },
+    { n:"xfer",  b:"b6",  e:"e5", t:"③ Transfer",
+      d:"Range resume into .part, atomic rename on success" },
+    { n:"ver",   b:"b7",  e:"e6", t:"④ Verify",
+      d:"length, APK parse, SHA-256, then the signing certificate" },
+    { n:"gate2", b:"b8",  e:"e7", t:"Policy gate, again",
+      d:"a fresh snapshot — the transfer may have taken hours" },
+    { n:"inst",  b:"b9",  e:"e8", t:"⑤ Install",
+      d:"commit a session, or stage an override for next boot" },
+    { n:"done",  b:"b10", e:"e9", t:"Complete",
+      d:"state cleared, daily trigger re-armed" }
+  ];
+
+  var CMD = [
+"B TRIGGER_NOW                      <span class=\"c\"># don't wait until 02:00</span>\nB SET_SERVICE_ENABLED --ez enabled false   <span class=\"c\"># kill switch</span>",
+"B SET_DRIVING --es state MOVING\nB SET_BATTERY --ei level 15 --ez charging false\nB SET_NETWORK --es class CELLULAR\nB SET_CELLULAR_SUBSCRIBED --ez subscribed false\nB CLEAR_SIGNAL_OVERRIDES           <span class=\"c\"># hand the signals back</span>",
+"B SET_ARTIFACT --es pkg com.lucid.mediaapp --el code 7   <span class=\"c\"># == installed -> UP_TO_DATE</span>\nB SET_ARTIFACT --es pkg com.lucid.mediaapp --el code 8   <span class=\"c\"># &gt; installed -> runs</span>\nB CLEAR_ARTIFACT",
+"B SET_ARTIFACT --es pkg com.lucid.mediaapp --el code 8 --el size 314572800\nB SET_FREE_SPACE --ei mb 100       <span class=\"c\"># needs 330 MB -> BLOCKED_STORAGE</span>\nB SET_FREE_SPACE --ei mb 4000",
+"B SET_URL_TTL --ei seconds 30      <span class=\"c\"># expire mid-transfer -> URL_REFRESHED</span>\nB EXPIRE_URL_NOW                   <span class=\"c\"># force one refresh</span>\nB FAIL_URL_FETCH --ei times 4      <span class=\"c\"># past the bound of 3</span>",
+"B SET_SPEED --ei kbps 400          <span class=\"c\"># slow enough to watch</span>\nB TRIGGER_NOW\nB SET_DRIVING --es state MOVING    <span class=\"c\"># PAUSED_DRIVING, .part kept</span>\nB SET_DRIVING --es state PARKED    <span class=\"c\"># RESUMED from the offset</span>\nB FORCE_HTTP_STATUS --ei code 503\nB FORCE_TRANSIENT_FAILURES --ei times 3",
+"B TRUNCATE_NEXT_DOWNLOAD --ei bytes 1024   <span class=\"c\"># LENGTH</span>\nB CORRUPT_NEXT_DOWNLOAD                    <span class=\"c\"># DIGEST</span>\nB USE_APK --es path /data/local/tmp/other.apk  <span class=\"c\"># SIGNATURE</span>",
+"<span class=\"c\"># let the transfer finish, then block the install</span>\nB SET_DRIVING --es state MOVING\nB DUMP_STATE                       <span class=\"c\"># apkPath is set</span>\nB SET_DRIVING --es state PARKED\nB TRIGGER_NOW                      <span class=\"c\"># straight to INSTALL_STARTED</span>",
+"B SET_INSTALL_MODE --es mode PACKAGE_MANAGER\nB INSTALL_NOW --es path /data/local/tmp/app.apk\nB FORCE_INSTALL_FAILURE --ei code 4\n\nB SET_INSTALL_MODE --es mode APK_OVERRIDE\nB PRINT_OVERRIDE_COMMANDS\nB DUMP_PENDING_OVERRIDE\nB CHECK_OVERRIDE_APPLIED",
+"B DUMP_STATE                       <span class=\"c\"># phase IDLE, apkPath null</span>\nB CANCEL_RUN                       <span class=\"c\"># CANCELLED, drops staged bytes</span>\nB RESET_ALL"
+  ];
+
+  var WHAT = [
+"<p>Two unique WorkManager names. <strong>daily_trigger</strong> fires at <code>Config.scheduleTime</code> and re-arms itself; it enqueues <strong>download_run</strong> with <code>KEEP</code>, so a run already pending wins and the trigger coalesces instead of stacking. A manual start uses <code>REPLACE</code>.</p><p style=\"margin-top:8px\">If the process died mid-run, the saved <code>RunState</code> is restored first and <code>STATE_RESTORED</code> is emitted before anything else.</p>",
+"<p>Four rules in a fixed order — <strong>driving, battery, network, storage</strong> — and the first failure wins. Blocked means the run persists <code>WAITING</code> with the reason and schedules a recheck 15 minutes out.</p><p style=\"margin-top:8px\">Coming back from a block, the gate has to stay open for a continuous <strong>10 seconds</strong> before the run proceeds. A signal that flaps re-blocks rather than starting a transfer it is about to have to pause.</p>",
+"<p>The catalogue returns an <code>Artifact</code> — packageName, versionCode, size, digest — but <strong>no URL</strong>. The resolver reads the installed version through <code>PackageManager</code> and compares numerically. Installed ≥ offered ends the run with no bytes moved.</p><p style=\"margin-top:8px\">The comparison uses <code>versionCode</code>, never <code>versionName</code>: that one is a free-form string, and sorting it as text puts \"1.10.0\" below \"1.9.0\".</p>",
+"<p>Now the size is known, the gate runs once more with <code>requiredBytes</code> set. Free space must cover the artifact <strong>plus 10%</strong>. Unknown free space (<code>-1</code>) never blocks — a signal the service cannot read must not become a reason to stop shipping updates.</p>",
+"<p>The URL is a second call to the backend, made here rather than with the catalogue for one reason: it carries a <strong>30-minute TTL</strong> and a run can sit at the gate for hours. Minting it only once both gates have opened is what keeps the clock from running out.</p><p style=\"margin-top:8px\">Mid-transfer the engine re-mints on its own when under 60 s is left, and reads <code>401</code>/<code>403</code> as expiry rather than a real auth failure. Past <strong>3</strong> re-mints in one run, the session gives up.</p>",
+"<p>Bytes land in <code>&lt;pkg&gt;.apk.part</code> and the file is renamed atomically only on success, so a half-written APK is never mistaken for a finished one. A resume sends <code>Range</code> with <code>If-Range</code> and validates the <code>Content-Range</code> that comes back.</p><p style=\"margin-top:8px\">A watcher re-evaluates the gate on <strong>every</strong> device-state change. A signal going bad cancels the engine and the run pauses — the <code>.part</code> file survives, so parking later resumes from the saved offset.</p>",
+"<p>Four checks, cheapest first, so a truncated file costs a <code>length()</code> call instead of hashing several hundred megabytes: <strong>length → APK parse → SHA-256 → signing certificate</strong>.</p><p style=\"margin-top:8px\">The signer check is the one that matters. A digest only proves the bytes arrived intact; it says nothing about who built them, and whoever can serve you an APK can serve you its hash too. A first install has nothing to compare against — allowed, and logged. Any failure deletes the file and retries from scratch <strong>once</strong>.</p>",
+"<p>The gate is re-evaluated from a <strong>fresh</strong> snapshot before anything is installed. The decision taken before the transfer is stale — a large APK on a slow link takes hours, and the car may well be moving again.</p><p style=\"margin-top:8px\">Blocked here, the verified APK stays on disk and <code>apkPath</code> is persisted. The next recheck finds it, skips stages ①–④ outright and re-enters at this gate. Without that, a car that parks, starts an install, then pulls away would re-download the whole artifact.</p>",
+"<p><strong>PACKAGE_MANAGER</strong> commits a <code>PackageInstaller</code> session. The platform's <code>INSTALL_SUCCEEDED</code> is treated as <em>advisory</em> — the run re-reads the installed versionCode and only then reports success. A reported success with an unchanged version is a failure.</p><p style=\"margin-top:8px\"><strong>APK_OVERRIDE</strong> installs nothing. It copies the APK into <code>files/override/</code>, records the current <code>BOOT_COUNT</code>, and ends at <code>OVERRIDE_STAGED</code>; the apply is an adb sequence on a userdebug build and takes effect at the next reboot.</p>",
+"<p>A successful run clears its state, stamps <code>lastSuccessAt</code>, emits its terminal event and then <code>DOWNLOAD_COMPLETE</code> as well — so that event always closes a successful run, whatever came before it.</p><p style=\"margin-top:8px\">The three abnormal endings stay distinguishable: <code>CANCELLED</code> drops the partial and any staged APK, <code>WORK_STOPPED_BY_SYSTEM</code> keeps progress and rechecks immediately, <code>SERVICE_DISABLED</code> never starts. In all three the daily trigger stays armed.</p>"
+  ];
+
+  // ---------- state ----------
+  var S, snaps = [];
+
+  function fresh() {
+    return { next:0, runId:hex(), phase:"IDLE", art:null, apk:null, wait:null,
+             started:false, prog:null, succ:null, halted:null, active:-1,
+             outcome:{}, refetched:0, resumedAt:null };
+  }
+  function hex() {
+    var s = "";
+    for (var i = 0; i < 8; i++) s += "0123456789abcdef".charAt(Math.floor(Math.random() * 16));
+    return s;
+  }
+  function cfg() {
+    return {
+      drive: $("cDrive").value,
+      batt: Math.max(0, Math.min(100, parseInt($("cBatt").value, 10) || 0)),
+      chg: $("cChg").checked,
+      net: $("cNet").value,
+      mode: $("cMode").value,
+      sub: $("cSub").checked,
+      free: parseInt($("cFree").value, 10),
+      size: Math.max(1, parseInt($("cSize").value, 10) || 1),
+      offer: Math.max(1, parseInt($("cOffer").value, 10) || 1),
+      inst: $("cInst").value,
+      fault: $("cFault").value
+    };
+  }
+  var INSTALLED = 7;
+
+  // Mirrors DefaultPolicyEvaluator: driving, battery, network, storage; first failure wins.
+  function gate(requiredMb) {
+    var c = cfg();
+    if (c.drive !== "PARKED") return { r:"DRIVING", d:"driving state " + c.drive };
+    if (!c.chg) {
+      var need = 20 + (S.wait === "BATTERY" ? 5 : 0);
+      if (c.batt < need) return { r:"BATTERY", d:"battery " + c.batt + "% below " + need + "%" };
+    }
+    var allowed = c.net === "UNMETERED_WIFI" ? true
+      : (c.net === "CELLULAR" ? (c.mode === "WIFI_OR_CELLULAR" && c.sub) : false);
+    if (!allowed) {
+      if (c.net === "BLUETOOTH_TETHER") return { r:"NETWORK", d:c.net + ": tethering not allowed" };
+      if (c.net === "CELLULAR" && !c.sub) return { r:"NETWORK", d:"cellular needs a connectivity subscription" };
+      return { r:"NETWORK", d:c.net + " not allowed in " + c.mode };
+    }
+    if (requiredMb > 0 && c.free >= 0) {
+      var needed = Math.round(requiredMb * 1.1);
+      if (c.free < needed) return { r:"STORAGE", d:"free " + c.free + " MB below required " + needed + " MB" };
+    }
+    return null;
+  }
+
+  // ---------- log ----------
+  var LVL = { I:"lg", W:"lw", E:"le", D:"dim", OK:"lo" };
+  var clock = null;
+  function stamp() {
+    if (!clock) clock = new Date(2026, 10, 5, 2, 51, 44);
+    clock = new Date(clock.getTime() + 300 + Math.floor(Math.random() * 900));
+    var p = function (n, w) { return ("0000" + n).slice(-(w || 2)); };
+    return "11-05 " + p(clock.getHours()) + ":" + p(clock.getMinutes()) + ":" + p(clock.getSeconds())
+      + "." + p(clock.getMilliseconds(), 3);
+  }
+  function sig() {
+    var c = cfg();
+    return "batt=" + c.batt + "% chg=" + (c.chg ? "Y" : "N") + " net=" + c.net + " drv=" + c.drive;
+  }
+  function emit(type, lvl, msg, bytes) {
+    var el = document.createElement("div");
+    var cls = LVL[lvl] || "lg";
+    el.innerHTML = '<span class="t">' + stamp() + '</span>  ' + (lvl === "OK" ? "I" : lvl)
+      + ' DlService: [' + S.runId + '] <span class="' + cls + '">' + type + '</span>'
+      + ' <span class="dim">| ' + sig() + ' bytes=' + (bytes || "-") + ' |</span> '
+      + '<span class="dim"></span>';
+    el.lastChild.textContent = msg || "";
+    var box = $("log");
+    box.appendChild(el);
+    while (box.children.length > 200) box.removeChild(box.firstChild);
+    box.scrollTop = box.scrollHeight;
+    $("logCount").textContent = box.children.length + (box.children.length === 1 ? " event" : " events");
+  }
+
+  // ---------- the run ----------
+  // Each returns { ev:[[type,level,msg,bytes]], halt:"wait"|"fail"|"ok"|null, note:[cls,text] }
+  function runStep(i) {
+    var c = cfg(), out = { ev: [], halt: null, note: null };
+    var MB = function (n) { return Math.round(n * 1048576); };
+
+    if (i === 0) {
+      if (c.fault === "disabled") {
+        out.ev.push(["SERVICE_DISABLED", "W", "feature flag off"]);
+        out.halt = "fail";
+        out.note = ["wait", "The kill switch short-circuits before any work. <code>downloadServiceEnabled</code> is read first, so nothing is scheduled and no state changes."];
+        return out;
+      }
+      out.ev.push(["SCHEDULE_FIRED", "I", "daily_trigger at 02:00"]);
+      out.note = ["", "A fresh <code>runId</code> is minted and <code>download_run</code> is enqueued."];
+      return out;
+    }
+
+    if (i === 1 || i === 7) {
+      var g = gate(0);
+      if (g) {
+        var repeat = S.wait === g.r;
+        out.ev.push([repeat ? "RECHECK_STILL_BLOCKED" : "BLOCKED_" + g.r, "W", g.d]);
+        out.halt = "wait";
+        S.wait = g.r;
+        out.note = ["wait", i === 7
+          ? "Blocked at the <strong>install</strong> gate. The verified APK stays on disk and <code>apkPath</code> is persisted — the next recheck re-enters here and skips stages ①–④ entirely."
+          : "Persisted as <code>WAITING</code> with the reason, and a recheck is scheduled 15 minutes out. Any partial bytes are kept."];
+        return out;
+      }
+      if (i === 1 && c.chg && c.batt < 20) {
+        out.ev.push(["CHARGING_OVERRIDE", "I", "charging below threshold"]);
+      }
+      if (S.wait) {
+        out.note = ["", "Resuming after a <code>" + S.wait + "</code> block, so the gate had to stay open for a continuous 10 s first."];
+        S.wait = null;
+      } else {
+        out.note = ["", "All four rules pass."];
+      }
+      return out;
+    }
+
+    if (i === 2) {
+      if (c.offer <= INSTALLED) {
+        out.ev.push(["UP_TO_DATE", "OK", "com.lucid.mediaapp already at " + INSTALLED]);
+        out.ev.push(["DOWNLOAD_COMPLETE", "OK", "com.lucid.mediaapp already at " + INSTALLED]);
+        out.halt = "ok";
+        out.note = ["ok", "Offered <code>" + c.offer + "</code> ≤ installed <code>" + INSTALLED + "</code>, so the run ends here having moved <strong>zero bytes</strong> and never asked for a URL."];
+        return out;
+      }
+      S.art = "art-mediaapp-" + c.offer;
+      out.note = ["", "Offered <code>" + c.offer + "</code> &gt; installed <code>" + INSTALLED + "</code> — an update. The artifact carries size and digest, but still no URL."];
+      return out;
+    }
+
+    if (i === 3) {
+      var gs = gate(c.size);
+      if (gs && gs.r === "STORAGE") {
+        out.ev.push(["BLOCKED_STORAGE", "W", gs.d]);
+        out.halt = "wait"; S.wait = "STORAGE";
+        out.note = ["wait", "A " + c.size + " MB artifact needs " + Math.round(c.size * 1.1) + " MB with the margin."];
+        return out;
+      }
+      out.note = ["", c.free < 0
+        ? "Free space is unknown (<code>-1</code>), which never blocks."
+        : c.free + " MB free covers the " + Math.round(c.size * 1.1) + " MB required."];
+      return out;
+    }
+
+    if (i === 4) {
+      if (c.fault === "url_exhaust") {
+        out.ev.push(["URL_FETCHED", "I", "expires 2026-11-05T03:21:45Z"]);
+        out.ev.push(["URL_REFRESHED", "I", "attempt 1"]);
+        out.ev.push(["URL_REFRESHED", "I", "attempt 2"]);
+        out.ev.push(["URL_REFRESHED", "I", "attempt 3"]);
+        out.ev.push(["URL_REFRESH_EXHAUSTED", "W", "URL re-fetched 3 times in one run"]);
+        out.ev.push(["DOWNLOAD_FAILED", "E", "could not mint a download URL"]);
+        out.halt = "fail";
+        out.note = ["bad", "Past <strong>3</strong> re-mints the session throws rather than retrying a rejecting server forever."];
+        return out;
+      }
+      out.ev.push(["URL_FETCHED", "I", "expires 2026-11-05T03:21:45Z"]);
+      out.note = ["", "Minted <strong>after</strong> both gates opened — the 30-minute clock starts now, not when the run was scheduled."];
+      return out;
+    }
+
+    if (i === 5) {
+      var total = MB(c.size);
+      out.ev.push([S.started ? "RESUMED" : "DOWNLOAD_STARTED", "I", "", S.started ? Math.round(total * 0.4) + "/" + total : "0/" + total]);
+      S.started = true;
+      out.ev.push(["DOWNLOAD_PROGRESS", "D", "", Math.round(total * 0.35) + "/" + total]);
+
+      if (c.fault === "pause_mid") {
+        out.ev.push(["PAUSED_DRIVING", "W", "driving state MOVING"]);
+        out.halt = "wait"; S.wait = "DRIVING"; S.prog = "40%";
+        out.note = ["wait", "The watcher saw the signal change and cancelled the engine. The <code>.part</code> file survives, so the next attempt resumes from the saved offset rather than starting over."];
+        return out;
+      }
+      if (c.fault === "http404") {
+        out.ev.push(["DOWNLOAD_FAILED", "E", "artifact not found (404)"]);
+        out.halt = "fail";
+        out.note = ["bad", "<code>404</code> is fatal — no amount of retrying fixes an artifact that is not there."];
+        return out;
+      }
+      if (c.fault === "http503") {
+        out.ev.push(["RETRY_SCHEDULED", "W", "HTTP 503, attempt 2 of 5"]);
+        out.ev.push(["RESUMED", "I", "", Math.round(total * 0.5) + "/" + total]);
+      }
+      if (c.fault === "url_expire") {
+        out.ev.push(["URL_REFRESHED", "I", "60 s left on the clock, re-minted"]);
+      }
+      out.ev.push(["DOWNLOAD_PROGRESS", "D", "", total + "/" + total]);
+      S.prog = "100%";
+      out.note = ["", c.fault === "url_expire"
+        ? "The URL expired mid-transfer and was re-minted without the transfer noticing."
+        : c.fault === "http503"
+          ? "<code>5xx</code> and <code>429</code> are retryable, up to 5 attempts, resuming from the saved offset each time."
+          : "Finished, and the <code>.part</code> file was renamed atomically."];
+      return out;
+    }
+
+    if (i === 6) {
+      var bad = { truncate:["LENGTH","expected 314572800 bytes, got 314571776"],
+                  corrupt:["DIGEST","SHA-256 mismatch"],
+                  signature:["SIGNATURE","signer does not match the installed com.lucid.mediaapp"] }[c.fault];
+      if (bad) {
+        out.ev.push(["VERIFY_FAILED", "E", bad[0] + ": " + bad[1]]);
+        out.ev.push(["RESUMED", "I", "retry 1 of 1, from scratch"]);
+        out.ev.push(["VERIFY_FAILED", "E", bad[0] + ": " + bad[1]]);
+        out.ev.push(["DOWNLOAD_FAILED", "E", "verification failed twice"]);
+        out.halt = "fail";
+        out.note = ["bad", "Failed on <strong>" + bad[0] + "</strong>, retried the whole transfer once, failed the same way. Two independent failures mean the source is wrong, not the wire — so the run stops instead of looping."];
+        return out;
+      }
+      S.apk = "/data/user/0/com.lucid.appmanager/files/com.lucid.mediaapp.apk";
+      out.note = ["", "All four checks pass, including the signer. <code>apkPath</code> is persisted now — that is what lets a blocked install resume without re-downloading."];
+      return out;
+    }
+
+    if (i === 8) {
+      out.ev.push(["INSTALL_STARTED", "I", "mode " + c.inst]);
+      if (c.inst === "APK_OVERRIDE") {
+        out.ev.push(["OVERRIDE_STAGED", "OK", "staged com.lucid.mediaapp v" + c.offer + "; apply with adb, takes effect next reboot"]);
+        out.ev.push(["DOWNLOAD_COMPLETE", "OK", "staged com.lucid.mediaapp v" + c.offer]);
+        out.halt = "ok";
+        out.note = ["ok", "Nothing is installed. The APK is staged and a <code>BOOT_COUNT</code> is recorded, so the service can later tell \"rebooted and the override took\" from \"never rebooted\"."];
+        return out;
+      }
+      if (c.fault === "notpriv") {
+        out.ev.push(["INSTALL_NEEDS_USER_ACTION", "W", "platform wants a confirmation dialog; not privileged?"]);
+        out.halt = "fail";
+        out.note = ["bad", "<code>STATUS_PENDING_USER_ACTION</code> means <code>USER_ACTION_NOT_REQUIRED</code> was refused. On a bench emulator this is the <em>correct</em> answer, not a bug — the silent path needs the privapp allowlist in the system image."];
+        return out;
+      }
+      if (c.fault === "instfail") {
+        out.ev.push(["INSTALL_FAILED", "E", "INSTALL_FAILED_VERSION_DOWNGRADE (4)"]);
+        out.halt = "fail";
+        out.note = ["bad", "The session commit was refused."];
+        return out;
+      }
+      out.ev.push(["INSTALL_COMPLETE", "OK", "com.lucid.mediaapp at " + c.offer]);
+      out.note = ["ok", "The installer reported success <em>and</em> re-reading the device confirmed the versionCode actually moved to <code>" + c.offer + "</code>. Only then is it a success."];
+      return out;
+    }
+
+    out.ev.push(["DOWNLOAD_COMPLETE", "OK", "com.lucid.mediaapp at " + c.offer]);
+    out.halt = "ok";
+    out.note = ["ok", "Run state cleared, <code>lastSuccessAt</code> stamped, <code>daily_trigger</code> re-armed."];
+    return out;
+  }
+
+  // ---------- diagram ----------
+  function paint() {
+    NODES.forEach(function (n) { $("n-" + n).classList.remove("on","ok","wait","bad","past"); });
+    EDGES.forEach(function (e) { $(e).classList.remove("on"); });
+    for (var b = 1; b <= 10; b++) $("b" + b).classList.remove("on");
+    $("rsm").classList.remove("on"); $("rsmL").classList.remove("on");
+
+    for (var i = 0; i < S.next; i++) {
+      if (S.outcome[i] === "skip") continue;
+      $("n-" + STEPS[i].n).classList.add("past");
+    }
+    var a = S.active;
+    if (a >= 0) {
+      var st = STEPS[a];
+      $("n-" + st.n).classList.add(S.halted || "on");
+      $(st.b).classList.add("on");
+      if (st.e) $(st.e).classList.add("on");
+    }
+    if (S.halted === "wait" && S.apk) { $("rsm").classList.add("on"); $("rsmL").classList.add("on"); }
+    $("instSub").textContent = cfg().inst;
+  }
+
+  function renderState() {
+    $("sRun").textContent = S.next > 0 ? S.runId : "—";
+    $("sPhase").textContent = S.phase;
+    $("sArt").textContent = S.art || "null";
+    $("sApk").textContent = S.apk ? "…/" + S.apk.split("/").pop() : "null";
+    $("sWait").textContent = S.wait || "null";
+    $("sStart").textContent = S.started ? "true" : "false";
+    $("sProg").textContent = S.prog || "null";
+    $("sSucc").textContent = S.succ || "null";
+  }
+
+  function renderStep() {
+    var dots = "";
+    for (var i = 0; i < STEPS.length; i++) {
+      var cls = "dot";
+      if (S.outcome[i] === "skip") cls += " skip";
+      else if (i < S.next) cls += " done";
+      else if (i === S.next && !S.halted) cls += " cur";
+      dots += '<button type="button" class="' + cls + '" data-i="' + i + '" '
+        + 'aria-label="Step ' + (i + 1) + ': ' + STEPS[i].t + '" title="' + STEPS[i].t + '">' + (i + 1) + "</button>";
+    }
+    $("dots").innerHTML = dots;
+
+    var endOfRun = S.next >= STEPS.length;
+    var blocked = !!S.halted;
+    $("next").textContent = endOfRun ? "Run finished" : "Run step " + (S.next + 1);
+    $("next").disabled = endOfRun || blocked;
+    $("recheck").hidden = S.halted !== "wait";
+    $("reset").textContent = (endOfRun || blocked) ? "Start a new run" : "Reset";
+
+    var shown = S.active >= 0 ? S.active : S.next;
+    var st = STEPS[Math.min(shown, STEPS.length - 1)];
+    if (blocked && S.halted !== "wait") {
+      $("stepTitle").textContent = "Run ended at step " + (S.active + 1);
+      $("stepDesc").textContent = " — nothing further runs. Reset to start a new one.";
+    } else if (S.halted === "wait") {
+      $("stepTitle").textContent = "Waiting at step " + (S.active + 1);
+      $("stepDesc").textContent = " — a recheck is scheduled 15 minutes out.";
+    } else if (endOfRun) {
+      $("stepTitle").textContent = "Run complete";
+      $("stepDesc").textContent = " — change a signal or inject a fault, then start a new run.";
+    } else {
+      $("stepTitle").textContent = "Step " + (S.next + 1) + " of 10 — " + STEPS[S.next].t;
+      $("stepDesc").textContent = " · " + STEPS[S.next].d;
+    }
+
+    var di = S.active >= 0 ? S.active : S.next;
+    di = Math.min(di, STEPS.length - 1);
+    $("dTitle").textContent = "Step " + (di + 1) + " — " + STEPS[di].t;
+    $("dWhat").innerHTML = WHAT[di];
+    $("dCmd").innerHTML = CMD[di];
+    var ev = S.outcome["ev" + di];
+    $("dEvents").innerHTML = ev ? ev : '<span class="ev">not run yet</span>';
+    var note = S.outcome["note" + di];
+    $("dVerdict").innerHTML = note ? '<div class="verdict ' + note[0] + '">' + note[1] + "</div>" : "";
+  }
+
+  function render() { paint(); renderState(); renderStep(); }
+
+  // ---------- driving the stepper ----------
+  function snap(i) {
+    snaps[i] = { s: JSON.stringify(S), log: $("log").innerHTML, count: $("logCount").textContent };
+    snaps.length = i + 1;
+  }
+  function goBack(i) {
+    if (i >= S.next || !snaps[i]) return;
+    S = JSON.parse(snaps[i].s);
+    $("log").innerHTML = snaps[i].log;
+    $("logCount").textContent = snaps[i].count;
+    snaps.length = i + 1;
+    render();
+  }
+
+  var EVCLS = { OK:"ok", W:"wait", E:"bad", I:"go", D:"" };
+  function step() {
+    if (S.halted || S.next >= STEPS.length) return;
+    var i = S.next;
+    snap(i);
+    var r = runStep(i);
+
+    S.phase = i >= 8 ? "INSTALLING" : (i >= 5 ? "RUNNING" : (i >= 1 ? "RUNNING" : "IDLE"));
+    var chips = "";
+    r.ev.forEach(function (e) {
+      emit(e[0], e[1], e[2], e[3]);
+      chips += '<span class="ev ' + (EVCLS[e[1]] || "") + '">' + e[0] + "</span> ";
+    });
+    S.outcome["ev" + i] = chips || '<span class="ev">no event at this step</span>';
+    S.outcome["note" + i] = r.note && r.note[1] ? r.note : null;
+
+    S.active = i;
+    S.halted = r.halt;
+    if (r.halt === "wait") { S.phase = "WAITING"; }
+    if (r.halt === "fail") { S.phase = "IDLE"; S.apk = null; S.prog = null; }
+    if (r.halt === "ok") {
+      S.phase = "IDLE"; S.apk = null; S.prog = null; S.art = null;
+      S.succ = "just now";
+      for (var k = i + 1; k < STEPS.length; k++) S.outcome[k] = "skip";
+      S.next = STEPS.length;
+      render();
+      return;
+    }
+    S.next = i + 1;
+    render();
+  }
+
+  function recheck() {
+    if (S.halted !== "wait") return;
+    emit("RECHECK_STILL_BLOCKED", "D", "safety-net recheck after 15 min");
+    S.halted = null;
+    var target = S.apk ? 7 : 1;          // apkPath on disk re-enters at the install gate
+    for (var k = target; k < STEPS.length; k++) delete S.outcome[k];
+    if (S.apk) {
+      for (var j = 2; j <= 6; j++) S.outcome[j] = "skip";
+      emit("STATE_RESTORED", "I", "verified APK on disk, skipping resolve, URL, transfer and verify");
+    }
+    S.next = target;
+    S.active = -1;
+    render();
+  }
+
+  function reset() {
+    S = fresh(); snaps = []; clock = null;
+    $("log").innerHTML = "";
+    $("logCount").textContent = "0 events";
+    render();
+  }
+
+  // ---------- wiring ----------
+  $("next").addEventListener("click", step);
+  $("recheck").addEventListener("click", recheck);
+  $("reset").addEventListener("click", reset);
+  $("dots").addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-i]");
+    if (b) goBack(parseInt(b.getAttribute("data-i"), 10));
+  });
+  ["cDrive","cBatt","cChg","cNet","cMode","cSub","cFree","cSize","cOffer","cInst","cFault"]
+    .forEach(function (id) { $(id).addEventListener("change", render); });
+
+  $("cpBtn").addEventListener("click", function () {
+    var pre = $("dCmd"), btn = $("cpBtn");
+    var done = function (word) {
+      btn.textContent = word;
+      setTimeout(function () { btn.textContent = "Copy"; }, 1500);
+    };
+    var fallback = function () {
+      try {
+        var r = document.createRange(); r.selectNodeContents(pre);
+        var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+        done("Selected");
+      } catch (e) { done("Select it"); }
+    };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(pre.innerText).then(function () { done("Copied"); }, fallback);
+      } else fallback();
+    } catch (e) { fallback(); }
+  });
+
+  reset();
+})();
+</script>
