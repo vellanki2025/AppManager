@@ -35,7 +35,6 @@ class ConnectivityNetworkMonitor(context: Context) : NetworkMonitor {
         fun NetworkCapabilities.toState(): NetworkState {
             val transport = when {
                 hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> NetworkTransport.WIFI
-                hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH) -> NetworkTransport.BLUETOOTH
                 hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> NetworkTransport.ETHERNET
                 hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> NetworkTransport.CELLULAR
                 hasCapability(NET_CAPABILITY_OEM_PAID) || hasCapability(NET_CAPABILITY_OEM_PRIVATE) -> NetworkTransport.CELLULAR

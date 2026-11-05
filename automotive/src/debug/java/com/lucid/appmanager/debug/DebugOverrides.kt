@@ -110,7 +110,6 @@ class DebugNetworkMonitor(private val real: NetworkMonitor) : NetworkMonitor {
         NetworkClass.UNMETERED_WIFI -> NetworkState(NetworkTransport.WIFI, metered = false, validated = true)
         NetworkClass.METERED_WIFI -> NetworkState(NetworkTransport.WIFI, metered = true, validated = true)
         NetworkClass.CELLULAR -> NetworkState(NetworkTransport.CELLULAR, metered = true, validated = true)
-        NetworkClass.BLUETOOTH_TETHER -> NetworkState(NetworkTransport.BLUETOOTH, metered = true, validated = true)
         NetworkClass.ETHERNET -> NetworkState(NetworkTransport.ETHERNET, metered = false, validated = true)
         NetworkClass.NONE -> NetworkState(NetworkTransport.NONE, metered = false, validated = false)
         NetworkClass.OTHER -> NetworkState(NetworkTransport.OTHER, metered = false, validated = true)

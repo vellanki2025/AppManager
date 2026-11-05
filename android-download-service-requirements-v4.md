@@ -327,7 +327,7 @@ adb shell am broadcast -n com.lucid.appmanager/.debug.DebugActionReceiver \
 |---|---|---|
 | Driving blocks start and pauses mid-run | `-a …SET_DRIVING --es state MOVING` | `setDrivingState(DrivingState)` |
 | Battery below threshold; resume margin | `-a …SET_BATTERY --ei level 15 --ez charging false` | `setBattery(Int, Boolean)` |
-| Network class, incl. tether rejection | `-a …SET_NETWORK --es class CELLULAR` | `setNetworkClass(NetworkClass)` |
+| Network class, incl. metered-hotspot rejection | `-a …SET_NETWORK --es class CELLULAR` | `setNetworkClass(NetworkClass)` |
 | Cellular without a subscription | `-a …SET_CELLULAR_SUBSCRIBED --ez subscribed false` | `setCellularSubscribed(Boolean)` |
 | Storage block (FR-38) | `-a …SET_FREE_SPACE --ei mb 100` | `setFreeSpaceMb(Int)` |
 | Clear all overrides, use real signals | `-a …CLEAR_SIGNAL_OVERRIDES` | `clearSignalOverrides()` |
@@ -468,3 +468,33 @@ adb reboot
 | C6 | Broadcast action prefix | `com.lucid.appmanager.debug.` |
 | C7 | Target partition in the printed adb sequence | `/product/priv-app/` |
 | C8 | Retry ladder | Unchanged from v3 §12: 5 attempts, 30 s → 15 min |
+
+## 11. Amendments after v4 implementation (2026-11-05)
+
+- **FR-9a.** `BLUETOOTH_TETHER` is removed from `NetworkClass` and `BLUETOOTH` from `NetworkTransport`.
+  Bluetooth PAN is not a supported transport for this service. The supported classes are unmetered Wi-Fi,
+  metered Wi-Fi, cellular, ethernet, other and none; only unmetered Wi-Fi — or cellular with
+  `WIFI_OR_CELLULAR` and a connectivity subscription — is ever allowed. `isTethered` now means metered
+  Wi-Fi alone.
+- **FR-39a.** A staged APK from an earlier attempt is reused only when `RunState.artifactId` equals the
+  artifact the current run just resolved. The catalogue can publish a newer version while a run sits
+  blocked at the install gate; without this guard the run installed the older staged APK. A mismatch
+  deletes the stale file, clears `apkPath` and emits `RESTARTED_FROM_ZERO` before the transfer begins.
+- **FR-30a.** The policy gate is re-evaluated from a **fresh** `monitor.snapshot()` immediately before the
+  signed URL is minted, not reused from the decision taken at the top of the run. A URL is good for 30
+  minutes, and the catalogue call sits between the two points; a charger unplugged or a battery fallen
+  below threshold in that window must block the run before the TTL is spent. This is a block, not a
+  failure: the run persists `WAITING` with the reason and rechecks, as with every other gate rule.
+- **FR-28a.** `ArtifactResolver.resolve()` is a cloud call and must not throw out of `execute()`. Any
+  failure reaching the catalogue - a link dropped since the gate, DNS, a timeout, a backend that is down -
+  is handled as a `NETWORK` block with the cause in the detail, so the run persists `WAITING` and rechecks.
+  Previously the only `catch` was for `CancellationException`, so an `IOException` propagated out of the
+  coordinator and the run ended with no event emitted and no state written.
+- **FR-42a.** The install gate evaluates driving and battery only. `PolicyEvaluator.evaluate` gains
+  `checkNetwork`, which the install gate passes as false; storage was already skipped via
+  `requiredBytes = 0`. Installing reads a verified APK from local storage and moves no bytes over the
+  wire, so a dropped link must not refuse it - otherwise a vehicle that completed its download and then
+  lost Wi-Fi could never install what it already holds, which defeats the separation of the download and
+  install halves in FR-39a. Driving and battery still gate the install: those rules are about whether
+  installing now is safe, which connectivity does not affect. Verification and completion are likewise
+  local and never consult the network.

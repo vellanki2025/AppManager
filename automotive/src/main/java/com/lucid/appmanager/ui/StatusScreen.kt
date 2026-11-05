@@ -111,7 +111,7 @@ private fun NetworkCard(s: DownloadStatus?, c: DownloadConfig?, update: Update) 
         } else {
             Text("Wi-Fi only. Cellular needs a connectivity subscription.", style = MaterialTheme.typography.bodySmall)
         }
-        Text("Hotspots and Bluetooth tethering are never used.", style = MaterialTheme.typography.bodySmall)
+        Text("Metered hotspots are never used.", style = MaterialTheme.typography.bodySmall)
     }
 }
 

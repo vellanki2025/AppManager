@@ -46,7 +46,7 @@ emit fail-safe values, so the gate blocks on `DRIVING`. Add the library's permis
 1. `Scheduler.ensureScheduled()` arms the unique `daily_trigger` work at the configured time (default 02:00).
 2. `ScheduleTriggerWorker` fires, enqueues `download_run` if idle (else `SCHEDULE_COALESCED`), re-arms tomorrow.
 3. `DownloadRunWorker` calls `RunCoordinator.execute()`: policy gate (driving, battery, network, storage;
-   tethered networks are always blocked), then
+   metered hotspots are always blocked), then
 
    ```
    ① resolve artifact → ② mint URL → ③ transfer → ④ verify → gate again → ⑤ install
@@ -158,7 +158,7 @@ adb logcat -s DlService          # replies and events land here, tagged [debug]
 |---|---|---|
 | Driving blocks start, pauses a transfer, blocks install | `SET_DRIVING --es state MOVING` | `setDrivingState` |
 | Battery threshold and resume margin | `SET_BATTERY --ei level 15 --ez charging false` | `setBattery` |
-| Network class; tethering always refused | `SET_NETWORK --es class CELLULAR` | `setNetworkClass` |
+| Network class; metered hotspots always refused | `SET_NETWORK --es class CELLULAR` | `setNetworkClass` |
 | Cellular without a subscription | `SET_CELLULAR_SUBSCRIBED --ez subscribed false` | `setCellularSubscribed` |
 | Storage below size plus margin | `SET_FREE_SPACE --ei mb 100` | `setFreeSpaceMb` |
 | Back to the real vehicle signals | `CLEAR_SIGNAL_OVERRIDES` | `clearSignalOverrides` |

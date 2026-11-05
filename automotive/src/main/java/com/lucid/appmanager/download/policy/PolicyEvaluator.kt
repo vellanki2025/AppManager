@@ -16,12 +16,17 @@ interface PolicyEvaluator {
      *
      * @param requiredBytes artifact size for the storage rule. 0 skips it, which is what the install
      *   gate does: by then the bytes are already on disk.
+     * @param checkNetwork false for a gate that moves no bytes (FR-42a). Installing reads a verified APK
+     *   off local storage, so a dropped link is no reason to refuse it — otherwise a car that finished
+     *   downloading and then lost Wi-Fi could never install what it already has. Driving and battery
+     *   still apply: those are about whether installing now is *safe*, which has not changed.
      */
     fun evaluate(
         state: DeviceState,
         config: Config,
         previousBlock: BlockReason? = null,
         requiredBytes: Long = 0L,
+        checkNetwork: Boolean = true,
     ): PolicyDecision
 }
 
@@ -36,11 +41,12 @@ class DefaultPolicyEvaluator(
         config: Config,
         previousBlock: BlockReason?,
         requiredBytes: Long,
+        checkNetwork: Boolean,
     ): PolicyDecision {
         val failures = listOfNotNull(
             driving(state),
             battery(state, config, previousBlock),
-            network(state, config),
+            if (checkNetwork) network(state, config) else null,
             storage(state, config, requiredBytes),
         )
         if (logAllFailures && failures.size > 1) log("failing rules: " + failures.joinToString { "${it.reason} (${it.detail})" })
@@ -71,7 +77,7 @@ class DefaultPolicyEvaluator(
         val allowed = when (cls) {
             NetworkClass.UNMETERED_WIFI -> true
             NetworkClass.CELLULAR -> c.networkMode == NetworkMode.WIFI_OR_CELLULAR && s.cellularSubscribed
-            NetworkClass.METERED_WIFI, NetworkClass.BLUETOOTH_TETHER,
+            NetworkClass.METERED_WIFI,
             NetworkClass.NONE, NetworkClass.ETHERNET, NetworkClass.OTHER -> false
         }
         return when {

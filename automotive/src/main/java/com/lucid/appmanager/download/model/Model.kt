@@ -6,8 +6,8 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 enum class DrivingState { PARKED, IDLING, MOVING, UNKNOWN }
-enum class NetworkTransport { NONE, WIFI, CELLULAR, BLUETOOTH, ETHERNET, OTHER }
-enum class NetworkClass { NONE, UNMETERED_WIFI, METERED_WIFI, CELLULAR, BLUETOOTH_TETHER, ETHERNET, OTHER }
+enum class NetworkTransport { NONE, WIFI, CELLULAR, ETHERNET, OTHER }
+enum class NetworkClass { NONE, UNMETERED_WIFI, METERED_WIFI, CELLULAR, ETHERNET, OTHER }
 enum class NetworkMode { WIFI_ONLY, WIFI_OR_CELLULAR }
 enum class BlockReason { DRIVING, BATTERY, NETWORK, STORAGE, SYSTEM_STOP }
 

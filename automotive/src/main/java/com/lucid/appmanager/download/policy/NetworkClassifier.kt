@@ -10,10 +10,9 @@ object NetworkClassifier {
         NetworkTransport.NONE -> NetworkClass.NONE
         NetworkTransport.WIFI -> if (state.metered) NetworkClass.METERED_WIFI else NetworkClass.UNMETERED_WIFI
         NetworkTransport.CELLULAR -> NetworkClass.CELLULAR
-        NetworkTransport.BLUETOOTH -> NetworkClass.BLUETOOTH_TETHER
         NetworkTransport.ETHERNET -> NetworkClass.ETHERNET
         NetworkTransport.OTHER -> NetworkClass.OTHER
     }
 
-    fun isTethered(cls: NetworkClass) = cls == NetworkClass.METERED_WIFI || cls == NetworkClass.BLUETOOTH_TETHER
+    fun isTethered(cls: NetworkClass) = cls == NetworkClass.METERED_WIFI
 }

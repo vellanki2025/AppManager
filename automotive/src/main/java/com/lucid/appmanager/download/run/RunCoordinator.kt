@@ -125,7 +125,21 @@ class RunCoordinator(
             }
 
             // ---------------------------------------------------------------- ① artifact (FR-28, FR-29)
-            val resolution = resolver.resolve()
+            // The catalogue is a cloud call. A link that dropped between the gate and here, or a backend
+            // that is simply down, must not throw out of the worker with no event and no state (FR-28a):
+            // it is a connectivity-class problem, so the run waits and rechecks like any network block.
+            val resolution = try {
+                resolver.resolve()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                wait(
+                    runId,
+                    PolicyDecision.Blocked(BlockReason.NETWORK, "catalogue unreachable: ${e.message ?: e::class.java.simpleName}"),
+                    device, progress.get(), cfg, saved, paused = false,
+                )
+                return
+            }
             val artifact: Artifact = when (resolution) {
                 is Resolution.Update -> resolution.artifact
                 is Resolution.UpToDate -> {
@@ -138,12 +152,28 @@ class RunCoordinator(
                 }
             }
 
-            // A verified APK from an earlier attempt means ①–④ are already done (design §3).
-            val readyApk = saved.apkPath?.let(::File)?.takeIf { it.exists() }
+            // A verified APK from an earlier attempt means ①–④ are already done (design §3) — but only
+            // when it is an APK of the artifact this run just resolved. The catalogue can move on while a
+            // run sits blocked, and reusing the older file would install the wrong version.
+            val staged = saved.apkPath?.let(::File)?.takeIf { it.exists() }
+            val readyApk = staged?.takeIf { saved.artifactId == artifact.artifactId }
+            if (staged != null && readyApk == null) {
+                staged.delete()
+                store.update { it.copy(apkPath = null) }
+                emit(
+                    EventType.RESTARTED_FROM_ZERO, runId, device, null, cfg,
+                    "staged APK was for ${saved.artifactId}, catalogue now offers ${artifact.artifactId}",
+                )
+            }
             var verified: File? = readyApk
 
             if (verified == null) {
-                // -------------------------------------------------------- storage gate (FR-38)
+                // -------------------------------------------------------- storage gate (FR-38, FR-30a)
+                // Re-snapshot first. The decision at the top of this run was taken before the catalogue
+                // call, and this evaluation sits immediately before the URL is minted: a signed URL good
+                // for 30 minutes must not be spent on a run whose gate has closed again in the meantime.
+                // evaluate() runs all four rules, so a battery that dropped or a car that moved blocks here.
+                device = monitor.snapshot()
                 val storage = policy.evaluate(device, cfg, previousBlock, requiredBytes = artifact.sizeBytes)
                 if (storage is PolicyDecision.Blocked) {
                     wait(runId, storage, device, progress.get(), cfg, saved, paused = false)
@@ -214,9 +244,12 @@ class RunCoordinator(
                 store.update { it.copy(phase = RunPhase.INSTALLING, apkPath = verified.absolutePath, progress = null) }
             }
 
-            // ---------------------------------------------------------------- install gate (FR-42)
+            // ---------------------------------------------------------------- install gate (FR-42, FR-42a)
+            // No network rule here: the APK is already verified on local storage, so installing moves no
+            // bytes over the wire. Driving and battery still gate it — those are about whether installing
+            // now is safe, which losing Wi-Fi does not change.
             device = monitor.snapshot()
-            val installGate = policy.evaluate(device, cfg, previousBlock)
+            val installGate = policy.evaluate(device, cfg, previousBlock, checkNetwork = false)
             if (installGate is PolicyDecision.Blocked) {
                 // The APK stays on disk; a resumed run comes straight back here.
                 store.update { it.copy(phase = RunPhase.WAITING, waitReason = installGate.reason, apkPath = verified.absolutePath) }
