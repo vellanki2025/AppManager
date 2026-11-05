@@ -102,9 +102,20 @@ select,input[type=number]{font:inherit;font-size:13px;padding:5px 7px;border-rad
 .cols3{display:grid;grid-template-columns:1.15fr 1fr;gap:14px}
 @media (max-width:860px){.cols,.cols3{grid-template-columns:1fr}}
 .cols .card,.cols3 .card{margin-top:0}
-.ctl{display:grid;grid-template-columns:minmax(96px,auto) 1fr;gap:7px 10px;align-items:center;font-size:13px}
-.ctl label{color:var(--muted)}
-.ctl .inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ctl{display:flex;flex-direction:column;gap:3px}
+.crow{display:grid;grid-template-columns:minmax(92px,auto) 1fr;gap:10px;align-items:center;font-size:13px;padding:5px 7px;border-radius:5px;border:1px solid transparent}
+.crow>label{color:var(--muted)}
+.crow .inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.crow.req{background:var(--accentbg);border-color:var(--accent)}
+.crow.req>label{color:var(--accent);font-weight:600}
+.crow.use{background:var(--panel2);border-color:var(--soft)}
+.crow.off{opacity:.58}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);margin:3px 0 10px}
+.legend i{font-style:normal;display:inline-flex;align-items:center;gap:5px}
+.legend b{display:inline-block;width:11px;height:11px;border-radius:3px;border:1px solid var(--accent);background:var(--accentbg)}
+.legend b.u{border-color:var(--line);background:var(--panel2)}
+.reads{font-size:12.6px;color:var(--muted);margin-top:11px;padding-top:9px;border-top:1px solid var(--soft)}
+.reads b{color:var(--fg);font-weight:600}
 .kv{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--soft);font-size:13px}
 .kv:last-child{border-bottom:0}
 .kv span:first-child{color:var(--muted)}
@@ -161,10 +172,11 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-si
 <!-- stepper -->
 <section class="card" aria-label="Run steps">
   <div class="dots" id="dots"></div>
-  <div class="small muted" style="margin:-2px 0 10px">Click a completed step to rewind to it.</div>
+  <div class="small muted" style="margin:-2px 0 10px">Previous step rewinds one. Clicking a completed number jumps straight back to it.</div>
   <div class="steprow">
     <div class="txt"><b id="stepTitle"></b><span class="muted small" id="stepDesc"></span></div>
     <div class="acts">
+      <button id="prev">&#8592; Previous step</button>
       <button class="primary" id="next"></button>
       <button id="recheck" hidden>Recheck in 15 min</button>
       <button id="reset">Reset</button>
@@ -227,58 +239,94 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-si
 <!-- controls + state -->
 <div class="cols3">
   <section class="card" aria-label="Bench conditions">
-    <h2>Vehicle &amp; bench</h2>
-    <p class="small muted" style="margin:3px 0 11px">Changes apply to the next step you run.</p>
-    <div class="ctl">
-      <label for="cDrive">Driving</label>
-      <select id="cDrive"><option>PARKED</option><option>IDLING</option><option>MOVING</option><option>UNKNOWN</option></select>
-
-      <label for="cBatt">Battery</label>
-      <div class="inline">
-        <input id="cBatt" type="number" min="0" max="100" value="90" style="width:68px"> %
-        <label class="small"><input id="cChg" type="checkbox"> charging</label>
-      </div>
-
-      <label for="cNet">Network</label>
-      <select id="cNet"><option>UNMETERED_WIFI</option><option>METERED_WIFI</option><option>CELLULAR</option><option>BLUETOOTH_TETHER</option><option>NONE</option></select>
-
-      <label for="cMode">Network mode</label>
-      <div class="inline">
-        <select id="cMode"><option>WIFI_ONLY</option><option>WIFI_OR_CELLULAR</option></select>
-        <label class="small"><input id="cSub" type="checkbox"> subscription</label>
-      </div>
-
-      <label for="cFree">Free space</label>
-      <div class="inline"><input id="cFree" type="number" min="-1" value="4000" style="width:78px"> MB</div>
-
-      <label for="cSize">Artifact size</label>
-      <div class="inline"><input id="cSize" type="number" min="1" value="300" style="width:78px"> MB</div>
-
-      <label for="cOffer">Offered code</label>
-      <div class="inline">
-        <input id="cOffer" type="number" min="1" value="8" style="width:64px">
-        <span class="small muted">installed <b class="mono">7</b></span>
-      </div>
-
-      <label for="cInst">Install mode</label>
-      <select id="cInst"><option>PACKAGE_MANAGER</option><option>APK_OVERRIDE</option></select>
-
-      <label for="cFault">Inject fault</label>
-      <select id="cFault">
-        <option value="none">none</option>
-        <option value="disabled">kill switch off</option>
-        <option value="url_expire">URL expires mid-transfer</option>
-        <option value="url_exhaust">URL refetch rejected ×4</option>
-        <option value="http503">HTTP 503, then recovers</option>
-        <option value="http404">HTTP 404 (fatal)</option>
-        <option value="pause_mid">car drives off mid-transfer</option>
-        <option value="truncate">truncated download</option>
-        <option value="corrupt">corrupted bytes</option>
-        <option value="signature">APK signed by someone else</option>
-        <option value="notpriv">not privileged</option>
-        <option value="instfail">install commit fails</option>
-      </select>
+    <h2>Vehicle &amp; bench <span class="small muted" style="font-weight:400" id="readsFor"></span></h2>
+    <div class="legend">
+      <i><b></b> decides this step</i>
+      <i><b class="u"></b> also evaluated</i>
+      <i style="opacity:.58">not read here</i>
     </div>
+    <div class="ctl">
+      <div class="crow" data-f="enabled">
+        <label for="cEnabled">Service</label>
+        <div class="inline">
+          <label class="small"><input id="cEnabled" type="checkbox" checked> downloadServiceEnabled</label>
+        </div>
+      </div>
+
+      <div class="crow" data-f="drive">
+        <label for="cDrive">Driving</label>
+        <select id="cDrive"><option>PARKED</option><option>IDLING</option><option>MOVING</option><option>UNKNOWN</option></select>
+      </div>
+
+      <div class="crow" data-f="batt">
+        <label for="cBatt">Battery</label>
+        <div class="inline">
+          <input id="cBatt" type="number" min="0" max="100" value="90" style="width:68px"> %
+          <label class="small"><input id="cChg" type="checkbox"> charging</label>
+        </div>
+      </div>
+
+      <div class="crow" data-f="net">
+        <label for="cNet">Network</label>
+        <select id="cNet"><option>UNMETERED_WIFI</option><option>METERED_WIFI</option><option>CELLULAR</option><option>NONE</option></select>
+      </div>
+
+      <div class="crow" data-f="mode">
+        <label for="cMode">Network mode</label>
+        <div class="inline">
+          <select id="cMode"><option>WIFI_ONLY</option><option>WIFI_OR_CELLULAR</option></select>
+          <label class="small"><input id="cSub" type="checkbox"> subscription</label>
+        </div>
+      </div>
+
+      <div class="crow" data-f="free">
+        <label for="cFree">Free space</label>
+        <div class="inline"><input id="cFree" type="number" min="-1" value="4000" style="width:78px"> MB</div>
+      </div>
+
+      <div class="crow" data-f="size">
+        <label for="cSize">Artifact size</label>
+        <div class="inline"><input id="cSize" type="number" min="1" value="300" style="width:78px"> MB</div>
+      </div>
+
+      <div class="crow" data-f="offer">
+        <label for="cOffer">Offered code</label>
+        <div class="inline">
+          <input id="cOffer" type="number" min="1" value="8" style="width:64px">
+          <span class="small muted">installed <b class="mono">7</b></span>
+        </div>
+      </div>
+
+      <div class="crow" data-f="inst">
+        <label for="cInst">Install mode</label>
+        <select id="cInst"><option>PACKAGE_MANAGER</option><option>APK_OVERRIDE</option></select>
+      </div>
+
+      <div class="crow" data-f="tfault">
+        <label for="cTFault">Download fault</label>
+        <select id="cTFault">
+          <option value="none">none</option>
+          <option value="url_expire">URL expires mid-transfer</option>
+          <option value="url_exhaust">URL refetch rejected x4</option>
+          <option value="http503">HTTP 503, then recovers</option>
+          <option value="http404">HTTP 404 (fatal)</option>
+          <option value="pause_mid">car drives off mid-transfer</option>
+          <option value="truncate">truncated download</option>
+          <option value="corrupt">corrupted bytes</option>
+          <option value="signature">APK signed by someone else</option>
+        </select>
+      </div>
+
+      <div class="crow" data-f="ifault">
+        <label for="cIFault">Install fault</label>
+        <select id="cIFault">
+          <option value="none">none</option>
+          <option value="notpriv">not privileged</option>
+          <option value="instfail">install commit fails</option>
+        </select>
+      </div>
+    </div>
+    <p class="reads" id="readsWhy"></p>
   </section>
 
   <section class="card" aria-label="Run state">
@@ -370,12 +418,12 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-si
   var WHAT = [
 "<p>Two unique WorkManager names. <strong>daily_trigger</strong> fires at <code>Config.scheduleTime</code> and re-arms itself; it enqueues <strong>download_run</strong> with <code>KEEP</code>, so a run already pending wins and the trigger coalesces instead of stacking. A manual start uses <code>REPLACE</code>.</p><p style=\"margin-top:8px\">If the process died mid-run, the saved <code>RunState</code> is restored first and <code>STATE_RESTORED</code> is emitted before anything else.</p>",
 "<p>Four rules in a fixed order — <strong>driving, battery, network, storage</strong> — and the first failure wins. Blocked means the run persists <code>WAITING</code> with the reason and schedules a recheck 15 minutes out.</p><p style=\"margin-top:8px\">Coming back from a block, the gate has to stay open for a continuous <strong>10 seconds</strong> before the run proceeds. A signal that flaps re-blocks rather than starting a transfer it is about to have to pause.</p>",
-"<p>The catalogue returns an <code>Artifact</code> — packageName, versionCode, size, digest — but <strong>no URL</strong>. The resolver reads the installed version through <code>PackageManager</code> and compares numerically. Installed ≥ offered ends the run with no bytes moved.</p><p style=\"margin-top:8px\">The comparison uses <code>versionCode</code>, never <code>versionName</code>: that one is a free-form string, and sorting it as text puts \"1.10.0\" below \"1.9.0\".</p>",
+"<p>The catalogue returns an <code>Artifact</code> — packageName, versionCode, size, digest — but <strong>no URL</strong>. The resolver reads the installed version through <code>PackageManager</code> and compares numerically. Installed ≥ offered ends the run with no bytes moved.</p><p style=\"margin-top:8px\">The comparison uses <code>versionCode</code>, never <code>versionName</code>: that one is a free-form string, and sorting it as text puts \"1.10.0\" below \"1.9.0\".</p><p style=\"margin-top:8px\">Resolve is also where <strong>downloading and installing come apart</strong>. If a verified APK is already on disk for the artifact just resolved, the whole download half is skipped and the run goes to the install gate. It is reused only when <code>artifactId</code> matches: a staged APK from before the catalogue moved on is deleted, not installed.</p>",
 "<p>Now the size is known, the gate runs once more with <code>requiredBytes</code> set. Free space must cover the artifact <strong>plus 10%</strong>. Unknown free space (<code>-1</code>) never blocks — a signal the service cannot read must not become a reason to stop shipping updates.</p>",
-"<p>The URL is a second call to the backend, made here rather than with the catalogue for one reason: it carries a <strong>30-minute TTL</strong> and a run can sit at the gate for hours. Minting it only once both gates have opened is what keeps the clock from running out.</p><p style=\"margin-top:8px\">Mid-transfer the engine re-mints on its own when under 60 s is left, and reads <code>401</code>/<code>403</code> as expiry rather than a real auth failure. Past <strong>3</strong> re-mints in one run, the session gives up.</p>",
+"<p>The URL is a second call to the backend, made here rather than with the catalogue for one reason: it carries a <strong>30-minute TTL</strong> and a run can sit at the gate for hours. Minting it only once both gates have opened is what keeps the clock from running out.</p><p style=\"margin-top:8px\">Because the TTL starts ticking the moment it is minted, the gate is re-evaluated from a <strong>fresh snapshot</strong> immediately before this call. A charger unplugged since step 2, or a battery that has fallen below threshold, blocks the run here rather than burning a URL it is about to waste.</p><p style=\"margin-top:8px\">Mid-transfer the engine re-mints on its own when under 60 s is left, and reads <code>401</code>/<code>403</code> as expiry rather than a real auth failure. Past <strong>3</strong> re-mints in one run, the session gives up.</p>",
 "<p>Bytes land in <code>&lt;pkg&gt;.apk.part</code> and the file is renamed atomically only on success, so a half-written APK is never mistaken for a finished one. A resume sends <code>Range</code> with <code>If-Range</code> and validates the <code>Content-Range</code> that comes back.</p><p style=\"margin-top:8px\">A watcher re-evaluates the gate on <strong>every</strong> device-state change. A signal going bad cancels the engine and the run pauses — the <code>.part</code> file survives, so parking later resumes from the saved offset.</p>",
 "<p>Four checks, cheapest first, so a truncated file costs a <code>length()</code> call instead of hashing several hundred megabytes: <strong>length → APK parse → SHA-256 → signing certificate</strong>.</p><p style=\"margin-top:8px\">The signer check is the one that matters. A digest only proves the bytes arrived intact; it says nothing about who built them, and whoever can serve you an APK can serve you its hash too. A first install has nothing to compare against — allowed, and logged. Any failure deletes the file and retries from scratch <strong>once</strong>.</p>",
-"<p>The gate is re-evaluated from a <strong>fresh</strong> snapshot before anything is installed. The decision taken before the transfer is stale — a large APK on a slow link takes hours, and the car may well be moving again.</p><p style=\"margin-top:8px\">Blocked here, the verified APK stays on disk and <code>apkPath</code> is persisted. The next recheck finds it, skips stages ①–④ outright and re-enters at this gate. Without that, a car that parks, starts an install, then pulls away would re-download the whole artifact.</p>",
+"<p>The gate is re-evaluated from a <strong>fresh</strong> snapshot before anything is installed. The decision taken before the transfer is stale — a large APK on a slow link takes hours, and the car may well be moving again.</p><p style=\"margin-top:8px\">Only driving and battery are checked. Storage and the network are both skipped: the bytes are already on local storage, so this step moves none, and a car that finished downloading and then lost Wi-Fi can still install what it has. Driving and battery remain, because those decide whether installing <em>now</em> is safe.</p><p style=\"margin-top:8px\">Blocked here, the verified APK stays on disk and <code>apkPath</code> is persisted. The next recheck finds it, skips stages ①–④ outright and re-enters at this gate. Without that, a car that parks, starts an install, then pulls away would re-download the whole artifact.</p>",
 "<p><strong>PACKAGE_MANAGER</strong> commits a <code>PackageInstaller</code> session. The platform's <code>INSTALL_SUCCEEDED</code> is treated as <em>advisory</em> — the run re-reads the installed versionCode and only then reports success. A reported success with an unchanged version is a failure.</p><p style=\"margin-top:8px\"><strong>APK_OVERRIDE</strong> installs nothing. It copies the APK into <code>files/override/</code>, records the current <code>BOOT_COUNT</code>, and ends at <code>OVERRIDE_STAGED</code>; the apply is an adb sequence on a userdebug build and takes effect at the next reboot.</p>",
 "<p>A successful run clears its state, stamps <code>lastSuccessAt</code>, emits its terminal event and then <code>DOWNLOAD_COMPLETE</code> as well — so that event always closes a successful run, whatever came before it.</p><p style=\"margin-top:8px\">The three abnormal endings stay distinguishable: <code>CANCELLED</code> drops the partial and any staged APK, <code>WORK_STOPPED_BY_SYSTEM</code> keeps progress and rechecks immediately, <code>SERVICE_DISABLED</code> never starts. In all three the daily trigger stays armed.</p>"
   ];
@@ -383,9 +431,31 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-si
   // ---------- state ----------
   var S, snaps = [];
 
+  // The service schedules its safety-net recheck 15 minutes out. Nobody is going to sit here for 15
+  // minutes, so the page polls on a short beat instead and keeps saying "15 min" - the wording describes
+  // the real schedule, the timer just stops this being a demo you cannot watch. It stays quiet after the
+  // first RECHECK_STILL_BLOCKED and re-enters the run the moment the gate reopens.
+  var AUTO_MS = 1500, timer = null;
+  function clearTimer() { if (timer) { clearTimeout(timer); timer = null; } }
+  function armAutoRecheck() { clearTimer(); timer = setTimeout(autoRecheck, AUTO_MS); }
+  function autoRecheck() {
+    timer = null;
+    if (S.halted !== "wait") return;
+    var blocked = gate(S.active === 3 ? cfg().size : 0, S.active !== 7);
+    if (blocked) {
+      if (!S.stillLogged) {
+        emit("RECHECK_STILL_BLOCKED", "D", blocked.d + " (recheck after 15 min)");
+        S.stillLogged = true;
+      }
+      armAutoRecheck();
+      return;
+    }
+    recheck();
+  }
+
   function fresh() {
     return { next:0, runId:hex(), phase:"IDLE", art:null, apk:null, wait:null,
-             started:false, prog:null, succ:null, halted:null, active:-1,
+             started:false, prog:null, succ:null, halted:null, active:-1, apkFor:null, stillLogged:false,
              outcome:{}, refetched:0, resumedAt:null };
   }
   function hex() {
@@ -395,6 +465,7 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-si
   }
   function cfg() {
     return {
+      enabled: $("cEnabled").checked,
       drive: $("cDrive").value,
       batt: Math.max(0, Math.min(100, parseInt($("cBatt").value, 10) || 0)),
       chg: $("cChg").checked,
@@ -405,25 +476,29 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-si
       size: Math.max(1, parseInt($("cSize").value, 10) || 1),
       offer: Math.max(1, parseInt($("cOffer").value, 10) || 1),
       inst: $("cInst").value,
-      fault: $("cFault").value
+      tfault: $("cTFault").value,
+      ifault: $("cIFault").value
     };
   }
   var INSTALLED = 7;
 
   // Mirrors DefaultPolicyEvaluator: driving, battery, network, storage; first failure wins.
-  function gate(requiredMb) {
+  function gate(requiredMb, checkNetwork) {
     var c = cfg();
     if (c.drive !== "PARKED") return { r:"DRIVING", d:"driving state " + c.drive };
     if (!c.chg) {
       var need = 20 + (S.wait === "BATTERY" ? 5 : 0);
       if (c.batt < need) return { r:"BATTERY", d:"battery " + c.batt + "% below " + need + "%" };
     }
-    var allowed = c.net === "UNMETERED_WIFI" ? true
-      : (c.net === "CELLULAR" ? (c.mode === "WIFI_OR_CELLULAR" && c.sub) : false);
-    if (!allowed) {
-      if (c.net === "BLUETOOTH_TETHER") return { r:"NETWORK", d:c.net + ": tethering not allowed" };
-      if (c.net === "CELLULAR" && !c.sub) return { r:"NETWORK", d:"cellular needs a connectivity subscription" };
-      return { r:"NETWORK", d:c.net + " not allowed in " + c.mode };
+    // Skipped by the install gate (FR-42a): that step moves no bytes over the wire.
+    if (checkNetwork !== false) {
+      var allowed = c.net === "UNMETERED_WIFI" ? true
+        : (c.net === "CELLULAR" ? (c.mode === "WIFI_OR_CELLULAR" && c.sub) : false);
+      if (!allowed) {
+        if (c.net === "METERED_WIFI") return { r:"NETWORK", d:c.net + ": tethering not allowed" };
+        if (c.net === "CELLULAR" && !c.sub) return { r:"NETWORK", d:"cellular needs a connectivity subscription" };
+        return { r:"NETWORK", d:c.net + " not allowed in " + c.mode };
+      }
     }
     if (requiredMb > 0 && c.free >= 0) {
       var needed = Math.round(requiredMb * 1.1);
@@ -468,10 +543,10 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-si
     var MB = function (n) { return Math.round(n * 1048576); };
 
     if (i === 0) {
-      if (c.fault === "disabled") {
-        out.ev.push(["SERVICE_DISABLED", "W", "feature flag off"]);
+      if (!c.enabled) {
+        out.ev.push(["SERVICE_DISABLED", "W", "downloadServiceEnabled is false"]);
         out.halt = "fail";
-        out.note = ["wait", "The kill switch short-circuits before any work. <code>downloadServiceEnabled</code> is read first, so nothing is scheduled and no state changes."];
+        out.note = ["wait", "The kill switch short-circuits before any work at all. <code>execute()</code> reads <code>downloadServiceEnabled</code> as its first act, so nothing is scheduled, no signal is sampled and no state changes."];
         return out;
       }
       out.ev.push(["SCHEDULE_FIRED", "I", "daily_trigger at 02:00"]);
@@ -480,7 +555,7 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-si
     }
 
     if (i === 1 || i === 7) {
-      var g = gate(0);
+      var g = gate(0, i !== 7);
       if (g) {
         var repeat = S.wait === g.r;
         out.ev.push([repeat ? "RECHECK_STILL_BLOCKED" : "BLOCKED_" + g.r, "W", g.d]);
@@ -504,6 +579,15 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-si
     }
 
     if (i === 2) {
+      // FR-28a: the catalogue is a cloud call, so no link means no answer - and an unreachable
+      // catalogue is a connectivity problem, which waits and rechecks rather than killing the run.
+      if (c.net === "NONE") {
+        out.ev.push([S.wait === "NETWORK" ? "RECHECK_STILL_BLOCKED" : "BLOCKED_NETWORK", "W",
+                     "catalogue unreachable: no network"]);
+        out.halt = "wait"; S.wait = "NETWORK";
+        out.note = ["wait", "Resolving asks the <strong>cloud</strong> what it offers, so with no link there is no answer. Without this the call would throw straight out of the worker, leaving no event and no state change - the run would simply vanish."];
+        return out;
+      }
       if (c.offer <= INSTALLED) {
         out.ev.push(["UP_TO_DATE", "OK", "com.lucid.mediaapp already at " + INSTALLED]);
         out.ev.push(["DOWNLOAD_COMPLETE", "OK", "com.lucid.mediaapp already at " + INSTALLED]);
@@ -512,7 +596,22 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-si
         return out;
       }
       S.art = "art-mediaapp-" + c.offer;
-      out.note = ["", "Offered <code>" + c.offer + "</code> &gt; installed <code>" + INSTALLED + "</code> — an update. The artifact carries size and digest, but still no URL."];
+
+      // Download and install are separate concerns: a verified APK already on disk means the download
+      // half is done, but only if it is an APK of THIS artifact.
+      if (S.apk && S.apkFor === c.offer) {
+        out.ev.push(["STATE_RESTORED", "I", "verified APK already on disk for " + S.art]);
+        out.jump = 7; out.skip = [3, 4, 5, 6];
+        out.note = ["ok", "A verified APK for <strong>this</strong> artifact is already on disk, so the storage gate, the URL, the transfer and verification are all skipped — the run goes straight to the install gate. This is the check that stops an interrupted run from downloading the same bytes twice."];
+        return out;
+      }
+      if (S.apk) {
+        out.ev.push(["RESTARTED_FROM_ZERO", "W", "staged APK was for art-mediaapp-" + S.apkFor + ", catalogue now offers " + S.art]);
+        S.apk = null; S.apkFor = null;
+        out.note = ["wait", "There was a staged APK, but for a <strong>different</strong> version. It is deleted rather than installed: the catalogue moved on while the run sat blocked. The transfer runs again from zero."];
+        return out;
+      }
+      out.note = ["", "Offered <code>" + c.offer + "</code> &gt; installed <code>" + INSTALLED + "</code> — an update, and nothing usable is on disk. The artifact carries size and digest, but still no URL."];
       return out;
     }
 
@@ -531,7 +630,17 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-si
     }
 
     if (i === 4) {
-      if (c.fault === "url_exhaust") {
+      // FR-30a: fresh snapshot immediately before minting. A 30-minute TTL must not be spent on a run
+      // whose gate has closed again - a stopped charger and a 10% battery blocks here, before any URL.
+      var gu = gate(0);
+      if (gu) {
+        out.ev.push([S.wait === gu.r ? "RECHECK_STILL_BLOCKED" : "BLOCKED_" + gu.r, "W", gu.d]);
+        out.halt = "wait";
+        S.wait = gu.r;
+        out.note = ["wait", "The gate closed again between the storage check and the mint, so <strong>no URL is requested at all</strong>. Spending a 30-minute signed URL on a run that is about to wait is the exact waste FR-30 exists to avoid.<br><br>This is a <strong>block</strong>, not a failure: a stopped charger or a moving car is temporary, so the run persists <code>WAITING</code> and rechecks in 15 minutes rather than giving up until the next 02:00 trigger."];
+        return out;
+      }
+      if (c.tfault === "url_exhaust") {
         out.ev.push(["URL_FETCHED", "I", "expires 2026-11-05T03:21:45Z"]);
         out.ev.push(["URL_REFRESHED", "I", "attempt 1"]);
         out.ev.push(["URL_REFRESHED", "I", "attempt 2"]);
@@ -553,30 +662,40 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-si
       S.started = true;
       out.ev.push(["DOWNLOAD_PROGRESS", "D", "", Math.round(total * 0.35) + "/" + total]);
 
-      if (c.fault === "pause_mid") {
+      // The watcher re-evaluates the whole gate on every device-state change, so any rule can stop a
+      // transfer already in flight - losing the link included.
+      var gx = gate(0);
+      if (gx) {
+        out.ev.push(["PAUSED_" + gx.r, "W", gx.d, Math.round(total * 0.35) + "/" + total]);
+        out.halt = "wait"; S.wait = gx.r; S.prog = "35%";
+        out.note = ["wait", "The engine had already started when the watcher saw <code>" + gx.r + "</code> and cancelled it. The <code>.part</code> file survives, so this resumes from the saved offset rather than from zero."];
+        return out;
+      }
+
+      if (c.tfault === "pause_mid") {
         out.ev.push(["PAUSED_DRIVING", "W", "driving state MOVING"]);
         out.halt = "wait"; S.wait = "DRIVING"; S.prog = "40%";
         out.note = ["wait", "The watcher saw the signal change and cancelled the engine. The <code>.part</code> file survives, so the next attempt resumes from the saved offset rather than starting over."];
         return out;
       }
-      if (c.fault === "http404") {
+      if (c.tfault === "http404") {
         out.ev.push(["DOWNLOAD_FAILED", "E", "artifact not found (404)"]);
         out.halt = "fail";
         out.note = ["bad", "<code>404</code> is fatal — no amount of retrying fixes an artifact that is not there."];
         return out;
       }
-      if (c.fault === "http503") {
+      if (c.tfault === "http503") {
         out.ev.push(["RETRY_SCHEDULED", "W", "HTTP 503, attempt 2 of 5"]);
         out.ev.push(["RESUMED", "I", "", Math.round(total * 0.5) + "/" + total]);
       }
-      if (c.fault === "url_expire") {
+      if (c.tfault === "url_expire") {
         out.ev.push(["URL_REFRESHED", "I", "60 s left on the clock, re-minted"]);
       }
       out.ev.push(["DOWNLOAD_PROGRESS", "D", "", total + "/" + total]);
       S.prog = "100%";
-      out.note = ["", c.fault === "url_expire"
+      out.note = ["", c.tfault === "url_expire"
         ? "The URL expired mid-transfer and was re-minted without the transfer noticing."
-        : c.fault === "http503"
+        : c.tfault === "http503"
           ? "<code>5xx</code> and <code>429</code> are retryable, up to 5 attempts, resuming from the saved offset each time."
           : "Finished, and the <code>.part</code> file was renamed atomically."];
       return out;
@@ -585,7 +704,7 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-si
     if (i === 6) {
       var bad = { truncate:["LENGTH","expected 314572800 bytes, got 314571776"],
                   corrupt:["DIGEST","SHA-256 mismatch"],
-                  signature:["SIGNATURE","signer does not match the installed com.lucid.mediaapp"] }[c.fault];
+                  signature:["SIGNATURE","signer does not match the installed com.lucid.mediaapp"] }[c.tfault];
       if (bad) {
         out.ev.push(["VERIFY_FAILED", "E", bad[0] + ": " + bad[1]]);
         out.ev.push(["RESUMED", "I", "retry 1 of 1, from scratch"]);
@@ -596,7 +715,8 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-si
         return out;
       }
       S.apk = "/data/user/0/com.lucid.appmanager/files/com.lucid.mediaapp.apk";
-      out.note = ["", "All four checks pass, including the signer. <code>apkPath</code> is persisted now — that is what lets a blocked install resume without re-downloading."];
+      S.apkFor = c.offer;
+      out.note = ["", "All four checks pass, including the signer. <code>apkPath</code> and <code>artifactId</code> are persisted together now — that pair is what lets a blocked install resume without re-downloading, and what stops a stale APK being reused after the catalogue moves on."];
       return out;
     }
 
@@ -609,13 +729,13 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-si
         out.note = ["ok", "Nothing is installed. The APK is staged and a <code>BOOT_COUNT</code> is recorded, so the service can later tell \"rebooted and the override took\" from \"never rebooted\"."];
         return out;
       }
-      if (c.fault === "notpriv") {
+      if (c.ifault === "notpriv") {
         out.ev.push(["INSTALL_NEEDS_USER_ACTION", "W", "platform wants a confirmation dialog; not privileged?"]);
         out.halt = "fail";
         out.note = ["bad", "<code>STATUS_PENDING_USER_ACTION</code> means <code>USER_ACTION_NOT_REQUIRED</code> was refused. On a bench emulator this is the <em>correct</em> answer, not a bug — the silent path needs the privapp allowlist in the system image."];
         return out;
       }
-      if (c.fault === "instfail") {
+      if (c.ifault === "instfail") {
         out.ev.push(["INSTALL_FAILED", "E", "INSTALL_FAILED_VERSION_DOWNGRADE (4)"]);
         out.halt = "fail";
         out.note = ["bad", "The session commit was refused."];
@@ -630,6 +750,47 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-si
     out.halt = "ok";
     out.note = ["ok", "Run state cleared, <code>lastSuccessAt</code> stamped, <code>daily_trigger</code> re-armed."];
     return out;
+  }
+
+  // Which bench controls each step actually reads. req = decides the outcome here,
+  // use = evaluated but not the point of this step.
+  var READS = [
+    { req:["enabled"], use:[],
+      why:"Only the kill switch - <b>downloadServiceEnabled</b>, which <b>execute()</b> reads as its first act. No vehicle signal is sampled until the gate at step 2, so one highlighted row here is correct rather than a gap." },
+    { req:["drive","batt","net","mode"], use:[],
+      why:"Driving, battery, then network - in that order, first failure wins. Storage is <b>not</b> read yet, because the artifact size is still unknown." },
+    { req:["offer","net","mode"], use:[],
+      why:"The offered versionCode against the installed <b>7</b>, plus the link itself: resolving is a cloud call, so no network means no answer. Resolve also decides whether an APK already on disk may be reused, by matching <b>artifactId</b>, which is why it runs on every recheck and is never skipped." },
+    { req:["free","size"], use:["drive","batt","net","mode"],
+      why:"Free space against artifact size plus 10%. The other three rules run again as part of the same call, but they just passed." },
+    { req:["drive","batt","net","mode","tfault"], use:[],
+      why:"A <b>fresh snapshot</b> of all four rules, taken immediately before the mint - so a charger that stopped or a battery that fell blocks here, before a 30-minute URL is spent on a run that is about to wait. Then the only remaining risk is the backend refusing to mint." },
+    { req:["size","tfault","drive","batt","net","mode"], use:[],
+      why:"Artifact size sets the byte count. The watcher re-evaluates the whole gate on <b>every</b> signal change, so driving, battery and network can still halt the transfer mid-flight." },
+    { req:["tfault"], use:["size"],
+      why:"Artifact size backs the length check. <b>No network is needed</b> - verifying is pure local file work on bytes that already arrived, so losing the link here cannot stop it." },
+    { req:["drive","batt"], use:[],
+      why:"Driving and battery only, from a fresh snapshot. <b>Storage and network are both skipped</b>: the bytes are already on disk, so this step moves none. A car that finished downloading and then lost Wi-Fi can still install what it has." },
+    { req:["inst","ifault"], use:[],
+      why:"The install mode picks the path, and only <b>Install fault</b> can reach this step - a download fault cannot. The two halves are independent: by now the bytes are verified and on disk, so nothing about the transfer can still go wrong here." },
+    { req:[], use:[],
+      why:"Nothing - and no network either. Clearing state and re-arming the trigger are local." }
+  ];
+
+  function paintReads() {
+    var di = S.active >= 0 ? S.active : S.next;
+    di = Math.min(di, STEPS.length - 1);
+    var r = READS[di];
+    var rows = document.querySelectorAll(".crow");
+    for (var i = 0; i < rows.length; i++) {
+      var f = rows[i].getAttribute("data-f");
+      rows[i].classList.remove("req", "use", "off");
+      if (r.req.indexOf(f) >= 0) rows[i].classList.add("req");
+      else if (r.use.indexOf(f) >= 0) rows[i].classList.add("use");
+      else rows[i].classList.add("off");
+    }
+    $("readsFor").textContent = "— what step " + (di + 1) + " reads";
+    $("readsWhy").innerHTML = r.why;
   }
 
   // ---------- diagram ----------
@@ -684,6 +845,12 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-si
     $("recheck").hidden = S.halted !== "wait";
     $("reset").textContent = (endOfRun || blocked) ? "Start a new run" : "Reset";
 
+    var pt = prevTarget();
+    $("prev").disabled = pt < 0;
+    $("prev").title = pt < 0
+      ? "Nothing to rewind yet"
+      : "Rewind to step " + (pt + 1) + " — " + STEPS[pt].t;
+
     var shown = S.active >= 0 ? S.active : S.next;
     var st = STEPS[Math.min(shown, STEPS.length - 1)];
     if (blocked && S.halted !== "wait") {
@@ -691,7 +858,7 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-si
       $("stepDesc").textContent = " — nothing further runs. Reset to start a new one.";
     } else if (S.halted === "wait") {
       $("stepTitle").textContent = "Waiting at step " + (S.active + 1);
-      $("stepDesc").textContent = " — a recheck is scheduled 15 minutes out.";
+      $("stepDesc").textContent = " — a recheck is scheduled 15 minutes out; the page runs it on a short loop so you can watch. Reopen the gate and the run carries on by itself.";
     } else if (endOfRun) {
       $("stepTitle").textContent = "Run complete";
       $("stepDesc").textContent = " — change a signal or inject a fault, then start a new run.";
@@ -711,14 +878,21 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-si
     $("dVerdict").innerHTML = note ? '<div class="verdict ' + note[0] + '">' + note[1] + "</div>" : "";
   }
 
-  function render() { paint(); renderState(); renderStep(); }
+  function render() { paint(); renderState(); renderStep(); paintReads(); }
 
   // ---------- driving the stepper ----------
   function snap(i) {
     snaps[i] = { s: JSON.stringify(S), log: $("log").innerHTML, count: $("logCount").textContent };
     snaps.length = i + 1;
   }
+  // One step back is the step most recently run; after a recheck nothing has run yet, so it is the
+  // step sitting in front of the cursor. Either way it resolves to the same snapshot a dot click uses.
+  function prevTarget() {
+    var t = S.active >= 0 ? S.active : S.next - 1;
+    return (t >= 0 && snaps[t]) ? t : -1;
+  }
   function goBack(i) {
+    clearTimer();
     if (i >= S.next || !snaps[i]) return;
     S = JSON.parse(snaps[i].s);
     $("log").innerHTML = snaps[i].log;
@@ -729,6 +903,7 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-si
 
   var EVCLS = { OK:"ok", W:"wait", E:"bad", I:"go", D:"" };
   function step() {
+    clearTimer();
     if (S.halted || S.next >= STEPS.length) return;
     var i = S.next;
     snap(i);
@@ -745,7 +920,7 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-si
 
     S.active = i;
     S.halted = r.halt;
-    if (r.halt === "wait") { S.phase = "WAITING"; }
+    if (r.halt === "wait") { S.phase = "WAITING"; S.stillLogged = false; armAutoRecheck(); }
     if (r.halt === "fail") { S.phase = "IDLE"; S.apk = null; S.prog = null; }
     if (r.halt === "ok") {
       S.phase = "IDLE"; S.apk = null; S.prog = null; S.art = null;
@@ -755,26 +930,32 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-si
       render();
       return;
     }
+    if (r.jump != null) {                 // resolve found a reusable APK: skip the download half
+      (r.skip || []).forEach(function (k) { S.outcome[k] = "skip"; });
+      S.phase = "INSTALLING";
+      S.next = r.jump;
+      render();
+      return;
+    }
     S.next = i + 1;
     render();
   }
 
   function recheck() {
     if (S.halted !== "wait") return;
-    emit("RECHECK_STILL_BLOCKED", "D", "safety-net recheck after 15 min");
+    clearTimer();
+    emit("DEVICE_STATE_CHANGED", "D", "gate reopened; the 15 min recheck re-runs it");
     S.halted = null;
-    var target = S.apk ? 7 : 1;          // apkPath on disk re-enters at the install gate
-    for (var k = target; k < STEPS.length; k++) delete S.outcome[k];
-    if (S.apk) {
-      for (var j = 2; j <= 6; j++) S.outcome[j] = "skip";
-      emit("STATE_RESTORED", "I", "verified APK on disk, skipping resolve, URL, transfer and verify");
-    }
-    S.next = target;
+    // A recheck always re-runs the gate and ALWAYS re-resolves the catalogue. Only the download half
+    // (storage, URL, transfer, verify) can be skipped, and resolve is what decides whether it may be.
+    for (var k = 1; k < STEPS.length; k++) delete S.outcome[k];
+    S.next = 1;
     S.active = -1;
     render();
   }
 
   function reset() {
+    clearTimer();
     S = fresh(); snaps = []; clock = null;
     $("log").innerHTML = "";
     $("logCount").textContent = "0 events";
@@ -783,13 +964,17 @@ footer{margin-top:26px;padding-top:16px;border-top:1px solid var(--line);font-si
 
   // ---------- wiring ----------
   $("next").addEventListener("click", step);
+  $("prev").addEventListener("click", function () {
+    var t = prevTarget();
+    if (t >= 0) goBack(t);
+  });
   $("recheck").addEventListener("click", recheck);
   $("reset").addEventListener("click", reset);
   $("dots").addEventListener("click", function (e) {
     var b = e.target.closest("button[data-i]");
     if (b) goBack(parseInt(b.getAttribute("data-i"), 10));
   });
-  ["cDrive","cBatt","cChg","cNet","cMode","cSub","cFree","cSize","cOffer","cInst","cFault"]
+  ["cEnabled","cDrive","cBatt","cChg","cNet","cMode","cSub","cFree","cSize","cOffer","cInst","cTFault","cIFault"]
     .forEach(function (id) { $(id).addEventListener("change", render); });
 
   $("cpBtn").addEventListener("click", function () {
