@@ -1,6 +1,6 @@
 package com.lucid.appmanager.debug
 
-import com.lucid.appmanager.catalogue.Manifest
+import com.lucid.appmanager.catalogue.ManifestApp
 import com.lucid.appmanager.download.engine.DownloadEngine
 import com.lucid.appmanager.download.engine.DownloadRequest
 import com.lucid.appmanager.download.engine.DownloadResult
@@ -94,12 +94,12 @@ class DebugDownloadEngine(
 class DebugInstaller(private val delegate: Installer) : Installer {
     override val mode: InstallMode get() = delegate.mode
 
-    override suspend fun install(manifest: Manifest, apk: File): InstallOutcome {
+    override suspend fun install(app: ManifestApp, apk: File): InstallOutcome {
         DebugState.forcedInstallFailureCode?.let { code ->
             DebugState.forcedInstallFailureCode = null
             apk.delete()
             return InstallOutcome.Failed(code, "debug: forced install failure")
         }
-        return delegate.install(manifest, apk)
+        return delegate.install(app, apk)
     }
 }

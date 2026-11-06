@@ -20,6 +20,7 @@ class UrlRefreshExhausted(val attempts: Int) : Exception("URL re-fetched $attemp
 class UrlSession(
     private val provider: ApkUrlProvider,
     private val manifestId: String,
+    private val packageName: String,
     private val clock: Clock = Clock.systemUTC(),
     /** Bound on transparent re-fetches within a single run (C2). */
     private val maxRefreshes: Int = DEFAULT_MAX_REFRESHES,
@@ -33,7 +34,7 @@ class UrlSession(
     val refreshCount: Int get() = refreshes.get()
 
     /** First fetch. Call only once the policy gate has opened and the download is about to begin. */
-    suspend fun open(): SignedUrl = provider.downloadUrl(manifestId).also { current = it }
+    suspend fun open(): SignedUrl = provider.downloadUrl(manifestId, packageName).also { current = it }
 
     /** The URL in hand, fetching one if [open] has not run yet. */
     suspend fun current(): SignedUrl = current ?: open()
@@ -47,7 +48,7 @@ class UrlSession(
     suspend fun refresh(): SignedUrl {
         val attempt = refreshes.incrementAndGet()
         if (attempt > maxRefreshes) throw UrlRefreshExhausted(attempt - 1)
-        return provider.downloadUrl(manifestId).also {
+        return provider.downloadUrl(manifestId, packageName).also {
             current = it
             onRefreshed(it)
         }

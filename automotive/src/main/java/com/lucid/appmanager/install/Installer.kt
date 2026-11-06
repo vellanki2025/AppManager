@@ -1,6 +1,6 @@
 package com.lucid.appmanager.install
 
-import com.lucid.appmanager.catalogue.Manifest
+import com.lucid.appmanager.catalogue.ManifestApp
 import java.io.File
 
 /** Which install path the service uses (FR-52). Chosen by feature flag, read at install time. */
@@ -45,5 +45,5 @@ interface Installer {
     val mode: InstallMode
 
     /** @param apk a file that has already passed [com.lucid.appmanager.download.verify.IntegrityVerifier]. */
-    suspend fun install(manifest: Manifest, apk: File): InstallOutcome
+    suspend fun install(app: ManifestApp, apk: File): InstallOutcome
 }

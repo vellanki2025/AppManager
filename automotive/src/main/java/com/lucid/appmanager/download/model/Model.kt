@@ -80,8 +80,10 @@ sealed interface PolicyDecision {
 data class RunState(
     val runId: String = "",
     val phase: RunPhase = RunPhase.IDLE,
-    /** Manifest this run is working on, so a resumed run does not re-check the catalogue. */
+    /** Manifest this run is working on. Identity for "has a new release arrived?". */
     val manifestId: String? = null,
+    /** The app inside that manifest whose APK [apkPath] holds. The three only make sense together. */
+    val currentPackage: String? = null,
     /** Set once the APK is downloaded and verified. Its presence is what lets a resume skip to install. */
     val apkPath: String? = null,
     val waitReason: BlockReason? = null,

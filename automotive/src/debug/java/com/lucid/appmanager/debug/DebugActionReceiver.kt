@@ -87,6 +87,16 @@ class DebugActionReceiver : BroadcastReceiver() {
                 )
                 null
             }
+            "ADD_APP" -> {
+                val pkg = intent.getStringExtra("pkg") ?: return log("ADD_APP needs --es pkg")
+                DebugFlagActions.addApp(
+                    packageName = pkg,
+                    versionCode = intent.getLongExtra("code", intent.getIntExtra("code", 1).toLong()),
+                    sizeBytes = intent.getLongExtra("size", 0L),
+                    digestHex = intent.getStringExtra("digest").orEmpty(),
+                )
+                null
+            }
             "CLEAR_MANIFEST" -> { DebugFlagActions.clearManifest(); null }
             "EXPIRE_URL_NOW" -> { DebugFlagActions.expireUrlNow(); null }
             "FAIL_URL_FETCH" -> { DebugFlagActions.failUrlFetch(intent.getIntExtra("times", 1)); null }

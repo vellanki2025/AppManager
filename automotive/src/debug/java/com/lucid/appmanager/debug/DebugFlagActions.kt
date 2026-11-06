@@ -1,6 +1,7 @@
 package com.lucid.appmanager.debug
 
 import com.lucid.appmanager.catalogue.Manifest
+import com.lucid.appmanager.catalogue.ManifestApp
 import com.lucid.appmanager.catalogue.Digest
 import com.lucid.appmanager.download.DownloadComponent
 import com.lucid.appmanager.download.model.BatteryState
@@ -190,15 +191,45 @@ object DebugFlagActions {
     // ---------------------------------------------------------------- 8.4 cloud and URL
 
     /**
-     * Inject the manifest the catalogue returns.
+     * Inject the manifest the catalogue returns, replacing whatever was there with a single app.
      *
      * Use case: drive a specific version, size and digest without a backend. Setting `versionCode` to what
      * is already installed proves the up-to-date short-circuit (FR-29).
-     * Action `SET_MANIFEST --es pkg com.x --ei code 42 [--es digest <hex>] [--el size <bytes>]`.
+     * Action `SET_MANIFEST --es pkg com.x --el code 42 [--es digest <hex>] [--el size <bytes>]`.
      */
     fun setManifest(packageName: String, versionCode: Long, sizeBytes: Long = 0L, digestHex: String = "") {
         DebugState.manifest = Manifest(
-            manifestId = "debug-$packageName-$versionCode",
+            manifestId = nextManifestId(),
+            apps = listOf(debugApp(packageName, versionCode, sizeBytes, digestHex)),
+        )
+    }
+
+    /**
+     * Add another app to the injected manifest, or replace that app if it is already listed.
+     *
+     * Use case: the whole point of a manifest — several apps in one release, iterated in order, each
+     * compared against what is installed (FR-58). Set a download fault between steps to fail exactly one
+     * and prove the others still update.
+     * Action `ADD_APP --es pkg com.y --el code 7 [--es digest <hex>] [--el size <bytes>]`.
+     */
+    fun addApp(packageName: String, versionCode: Long, sizeBytes: Long = 0L, digestHex: String = "") {
+        val existing = DebugState.manifest?.apps.orEmpty().filterNot { it.packageName == packageName }
+        DebugState.manifest = Manifest(
+            manifestId = nextManifestId(),
+            apps = existing + debugApp(packageName, versionCode, sizeBytes, digestHex),
+        )
+    }
+
+    /**
+     * A fresh id on every change, so each edit looks like a new release arriving.
+     *
+     * That is what exercises the sweep: a different `manifestId` drops whatever the previous one left on
+     * disk, which is exactly the behaviour a bench needs to be able to trigger on demand.
+     */
+    private fun nextManifestId() = "debug-" + System.currentTimeMillis().toString().takeLast(6)
+
+    private fun debugApp(packageName: String, versionCode: Long, sizeBytes: Long, digestHex: String) =
+        ManifestApp(
             packageName = packageName,
             title = packageName.substringAfterLast('.'),
             versionName = "debug-$versionCode",
@@ -206,7 +237,6 @@ object DebugFlagActions {
             sizeBytes = sizeBytes,
             digest = Digest.sha256(digestHex),
         )
-    }
 
     /** Return to the real catalogue. Action `CLEAR_MANIFEST`. */
     fun clearManifest() { DebugState.manifest = null }
@@ -323,16 +353,7 @@ object DebugFlagActions {
      * Action `STAGE_OVERRIDE --es path /data/local/tmp/app.apk`.
      */
     fun stageOverride(apk: File, packageName: String, versionCode: Long) = scope.launch {
-        val manifest = Manifest(
-            manifestId = "debug-stage",
-            packageName = packageName,
-            title = packageName.substringAfterLast('.'),
-            versionName = "debug-$versionCode",
-            versionCode = versionCode,
-            sizeBytes = apk.length(),
-            digest = Digest.sha256(""),
-        )
-        component.overrides.install(manifest, apk)
+        component.overrides.install(debugApp(packageName, versionCode, apk.length(), ""), apk)
     }
 
     /**

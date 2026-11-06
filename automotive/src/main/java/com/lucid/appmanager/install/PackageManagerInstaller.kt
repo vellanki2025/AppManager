@@ -7,7 +7,7 @@ import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.os.Build
 import android.util.Log
-import com.lucid.appmanager.catalogue.Manifest
+import com.lucid.appmanager.catalogue.ManifestApp
 import com.lucid.appmanager.download.events.Logger
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CompletableDeferred
@@ -36,14 +36,14 @@ class PackageManagerInstaller(
 
     override val mode = InstallMode.PACKAGE_MANAGER
 
-    override suspend fun install(manifest: Manifest, apk: File): InstallOutcome = withContext(ioDispatcher) {
+    override suspend fun install(app: ManifestApp, apk: File): InstallOutcome = withContext(ioDispatcher) {
         if (!apk.exists() || apk.length() == 0L) {
             return@withContext InstallOutcome.Failed(-1, "APK missing or empty at ${apk.absolutePath}")
         }
 
         val installer = context.packageManager.packageInstaller
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
-            setAppPackageName(manifest.packageName)
+            setAppPackageName(app.packageName)
             setSize(apk.length())
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
@@ -66,10 +66,10 @@ class PackageManagerInstaller(
             withTimeoutOrNull(timeoutMs) { result.await() }
                 ?: InstallOutcome.Failed(-1, "timed out after ${timeoutMs}ms waiting for the installer")
         } catch (e: SecurityException) {
-            Log.e(Logger.TAG, "install of ${manifest.packageName} refused", e)
+            Log.e(Logger.TAG, "install of ${app.packageName} refused", e)
             InstallOutcome.Failed(-1, "refused: ${e.message ?: "permission denied"}")
         } catch (e: Exception) {
-            Log.e(Logger.TAG, "install of ${manifest.packageName} failed", e)
+            Log.e(Logger.TAG, "install of ${app.packageName} failed", e)
             InstallOutcome.Failed(-1, e.message ?: e::class.java.simpleName)
         } finally {
             if (sessionId != -1) InstallResultReceiver.forget(sessionId)

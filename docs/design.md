@@ -22,7 +22,7 @@ install against what is installed; fetching a short-lived APK URL; downloading w
 integrity and provenance; installing by one of two paths; surviving process death, reboot and system stop.
 
 **Out of scope, deliberately.** Uninstall, downgrade and rollback. Split APKs and APEX. More than one
-manifest per run. Self-update — this APK ships in the system image by OTA and never updates itself.
+manifest in flight at a time — a new one supersedes the current one rather than queueing beside it. Self-update — this APK ships in the system image by OTA and never updates itself.
 Unit tests, per the standing project decision.
 
 | | |
@@ -66,18 +66,23 @@ names them — see [§11](#11-debug-actions).
 One invocation of `download_run`:
 
 ```
-gate → ① manifest check → storage gate → ② fetch APK URL → ③ download → ④ verify → gate again → ⑤ install
+gate → ① manifest check → for each app that needs it:
+                              storage gate → ② fetch APK URL → ③ download → ④ verify → gate → ⑤ install
 ```
 
-Five stages bracketed by two evaluations of the same policy gate. A run that already has a verified APK on
-disk skips ①–④ entirely and re-enters at the install gate.
+The manifest check runs **once**, for the whole run. Stages ②–⑤ then repeat per app, **serially**: one
+engine, one `.part`, one foreground notification, and a peak disk cost of the largest single app rather
+than the whole release. Each app's APK is deleted as soon as it is installed, before the next download
+starts.
+
+An app that already has a verified APK on disk skips ②–④ and re-enters at its install gate.
 
 | Step | Does | Ends the run when |
 |---|---|---|
 | Trigger | `daily_trigger` fires, enqueues `download_run` | the kill switch is off |
 | **Gate** | driving, battery, network | any rule fails → `WAITING`, recheck in 15 min |
-| **① Manifest check** | catalogue vs installed `versionCode` | installed ≥ offered → `UP_TO_DATE`, zero bytes |
-| **Storage gate** | manifest size + 10% must fit | → `WAITING` |
+| **① Manifest check** | one catalogue call; each app's `versionCode` vs installed | every app already current → `UP_TO_DATE` each, zero bytes |
+| **Storage gate** | *per app*: that app's size + 10% must fit | → `WAITING` |
 | **② Fetch URL** | mint a signed URL, 30 min TTL | the backend refuses |
 | **③ Download** | `Range` resume into `.part`, atomic rename | 404, or the retry ladder is exhausted |
 | **④ Verify** | length → APK parse → SHA-256 → signer | two failures in a row |
@@ -85,7 +90,13 @@ disk skips ①–④ entirely and re-enters at the install gate.
 | **⑤ Install** | session commit, or stage an override | the install fails or needs user action |
 | Complete | clear state, re-arm the trigger | always `DOWNLOAD_COMPLETE` |
 
-Three properties that are easy to miss:
+**A failed app does not fail the run.** One bad APK on the server costs that app its update and nothing
+else; the loop records it and moves on, and `DOWNLOAD_COMPLETE` closes with a summary — "1 of 2 installed,
+1 failed". A *block* is different: it suspends the whole run, which simply returns with the reason
+persisted, and the recheck recomputes the plan from the device. An app installed before the block drops
+out of `updates` on its own, so the queue never needs persisting.
+
+Three more properties that are easy to miss:
 
 - **The gate runs twice, from two different snapshots.** A large APK on a slow link takes hours; the
   decision taken before the download is stale by install time.
@@ -130,12 +141,22 @@ Two calls, deliberately. The catalogue describes *what* to install; a second cal
 it. A 30-minute URL cannot live inside a long-lived manifest.
 
 ```kotlin
-Manifest(manifestId, packageName, title, versionName, versionCode, sizeBytes, digest)
+Manifest(manifestId, apps: List<ManifestApp>)
+ManifestApp(packageName, title, versionName, versionCode, sizeBytes, digest)
 SignedUrl(url, expiresAt)
 
-CatalogueProvider.availableManifests(): List<Manifest>
-ApkUrlProvider.downloadUrl(manifestId): SignedUrl
+CatalogueProvider.currentManifest(): Manifest?
+ApkUrlProvider.downloadUrl(manifestId, packageName): SignedUrl
 ```
+
+**A manifest is a release: one id, several apps.** It is the unit that arrives and gets replaced, which is
+why only one is ever in flight — a different `manifestId` supersedes the previous one rather than queueing
+beside it. The apps inside it are what the run iterates.
+
+`ManifestChecker.check()` runs **once per run** and produces the plan: every app whose `versionCode` beats
+what is installed goes in `updates`, the rest in `upToDate`. An app the vehicle does not have at all
+counts as installed version 0, so a manifest can add an app as well as move one forward. Apps in
+`upToDate` are reported once and never enter the loop, so they never cost a byte.
 
 Comparison is on `versionCode`, never `versionName` — that one is a free-form string, and sorting it as
 text puts "1.10.0" below "1.9.0".
@@ -313,12 +334,17 @@ adb logcat -s DlService
 | Flags | `SET_SERVICE_ENABLED` `SET_INSTALL_MODE` `DUMP_FLAGS` |
 | Schedule | `TRIGGER_NOW` `SET_SCHEDULE_TIME` `CANCEL_RUN` |
 | Gate | `SET_NETWORK_TYPE` `SET_DRIVING` `SET_BATTERY` `SET_NETWORK` `SET_CELLULAR_SUBSCRIBED` `SET_FREE_SPACE` `CLEAR_SIGNAL_OVERRIDES` |
-| Cloud | `SET_MANIFEST` `CLEAR_MANIFEST` `EXPIRE_URL_NOW` `FAIL_URL_FETCH` `SET_URL_TTL` |
+| Cloud | `SET_MANIFEST` `ADD_APP` `CLEAR_MANIFEST` `EXPIRE_URL_NOW` `FAIL_URL_FETCH` `SET_URL_TTL` |
 | Download | `SET_RANGE_SUPPORT` `FORCE_HTTP_STATUS` `FORCE_TRANSIENT_FAILURES` `SET_SPEED` |
 | Integrity | `CORRUPT_NEXT_DOWNLOAD` `TRUNCATE_NEXT_DOWNLOAD` `USE_APK` |
 | Install A | `INSTALL_NOW` `FORCE_INSTALL_FAILURE` |
 | Install B | `STAGE_OVERRIDE` `PRINT_OVERRIDE_COMMANDS` `DUMP_PENDING_OVERRIDE` `CHECK_OVERRIDE_APPLIED` `CLEAR_PENDING_OVERRIDE` |
 | State | `DUMP_STATE` `RESET_ALL` |
+
+`ADD_APP` appends an app to the injected manifest, which is how a multi-app release is exercised on a
+bench: set a download fault between steps to fail exactly one app and watch the others still install.
+Every edit mints a fresh `manifestId`, so each one looks like a new release arriving and triggers the
+sweep.
 
 `SET_NETWORK_TYPE` sets class, subscription and mode together as one coherent situation —
 `UNMETERED_WIFI`, `METERED_WIFI`, `CELLULAR_ENABLED`, `CELLULAR_NO_SUBSCRIPTION`, `NONE` — which is easier
@@ -406,7 +432,7 @@ bug above.
 the override check degrades to "report on the first start after staging".
 
 **Deferred.** A platform helper service for privileged partition writes — the production answer to path B.
-Uninstall, downgrade, rollback. Split APKs and APEX. More than one manifest per run. Unit tests.
+Uninstall, downgrade, rollback. Split APKs and APEX. More than one manifest in flight. Unit tests.
 
 ---
 

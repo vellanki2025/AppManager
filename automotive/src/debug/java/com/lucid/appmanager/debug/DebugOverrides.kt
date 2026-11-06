@@ -76,7 +76,7 @@ object DebugState {
 
     fun dump(): String = buildString {
         appendLine("driving=$driving battery=$battery network=$networkClass cellular=$cellularSubscribed freeSpace=$freeSpaceBytes")
-        appendLine("manifest=${manifest?.packageName}@${manifest?.versionCode} urlTtlMs=$urlTtlMillis expireNow=$expireUrlNow failUrlFetch=$failUrlFetchTimes")
+        appendLine("manifest=${manifest?.manifestId} apps=${manifest?.apps?.joinToString { it.packageName + "@" + it.versionCode }} urlTtlMs=$urlTtlMillis expireNow=$expireUrlNow failUrlFetch=$failUrlFetchTimes")
         appendLine("range=$rangeSupported httpStatus=$forcedHttpStatus transientLeft=$transientFailuresLeft speedKbps=$speedKbps")
         appendLine("corrupt=$corruptNextDownload truncateBy=$truncateNextDownloadBy localApk=$localApkPath")
         append("installFailureCode=$forcedInstallFailureCode")
@@ -130,18 +130,17 @@ class DebugStorageMonitor(private val real: StorageMonitor) : StorageMonitor {
 // ---------------------------------------------------------------- cloud decorators
 
 class DebugCatalogueProvider(private val real: CatalogueProvider) : CatalogueProvider {
-    override suspend fun availableManifests(): List<Manifest> =
-        DebugState.manifest?.let { listOf(it) } ?: real.availableManifests()
+    override suspend fun currentManifest(): Manifest? = DebugState.manifest ?: real.currentManifest()
 }
 
 /** Injects expiry and fetch failures so FR-31 and FR-32 can be exercised on demand. */
 class DebugUrlProvider(private val real: ApkUrlProvider) : ApkUrlProvider {
-    override suspend fun downloadUrl(manifestId: String): SignedUrl {
+    override suspend fun downloadUrl(manifestId: String, packageName: String): SignedUrl {
         if (DebugState.failUrlFetchTimes > 0) {
             DebugState.failUrlFetchTimes--
             throw IOException("debug: forced URL fetch failure")
         }
-        val url = real.downloadUrl(manifestId)
+        val url = real.downloadUrl(manifestId, packageName)
         return when {
             DebugState.expireUrlNow -> {
                 DebugState.expireUrlNow = false

@@ -48,6 +48,7 @@ class DataStoreRunStateStore(context: Context, private val clock: Clock) : RunSt
         waitReason = this[WAIT_REASON]?.let(BlockReason::valueOf),
         hasStarted = this[HAS_STARTED] ?: false,
         manifestId = this[MANIFEST_ID],
+        currentPackage = this[CURRENT_PACKAGE],
         apkPath = this[APK_PATH],
         progress = this[DOWNLOADED]?.let { Progress(it, this[TOTAL]) },
         lastStateChangeAt = this[LAST_CHANGE] ?: 0L,
@@ -73,6 +74,8 @@ class DataStoreRunStateStore(context: Context, private val clock: Clock) : RunSt
         val manifestId = s.manifestId
         if (manifestId != null) this[MANIFEST_ID] = manifestId else remove(MANIFEST_ID)
 
+        val currentPackage = s.currentPackage
+        if (currentPackage != null) this[CURRENT_PACKAGE] = currentPackage else remove(CURRENT_PACKAGE)
         val apkPath = s.apkPath
         if (apkPath != null) this[APK_PATH] = apkPath else remove(APK_PATH)
 
@@ -96,6 +99,7 @@ class DataStoreRunStateStore(context: Context, private val clock: Clock) : RunSt
         val WAIT_REASON = stringPreferencesKey("wait_reason")
         val HAS_STARTED = booleanPreferencesKey("has_started")
         val MANIFEST_ID = stringPreferencesKey("manifest_id")
+        val CURRENT_PACKAGE = stringPreferencesKey("current_package")
         val APK_PATH = stringPreferencesKey("apk_path")
         val DOWNLOADED = longPreferencesKey("downloaded")
         val TOTAL = longPreferencesKey("total")

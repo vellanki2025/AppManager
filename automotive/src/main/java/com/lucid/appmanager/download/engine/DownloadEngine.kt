@@ -1,6 +1,6 @@
 package com.lucid.appmanager.download.engine
 
-import com.lucid.appmanager.catalogue.Manifest
+import com.lucid.appmanager.catalogue.ManifestApp
 import kotlinx.coroutines.delay
 import java.io.File
 import kotlin.math.min
@@ -38,7 +38,7 @@ sealed interface DownloadResult {
 
 /** Everything one run's engine needs. Built fresh per run, which is why engines come from a factory. */
 data class DownloadRequest(
-    val manifest: Manifest,
+    val app: ManifestApp,
     val urls: UrlSession,
     /** Final path. The engine streams to `<target>.part` and renames on success. */
     val target: File,

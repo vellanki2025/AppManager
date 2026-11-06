@@ -3,15 +3,35 @@ package com.lucid.appmanager.catalogue
 import java.time.Instant
 
 /**
- * What to install (FR-28).
+ * One release: the set of apps the vehicle should be running (FR-28).
  *
- * Deliberately carries no download URL. The URL has a 30 minute TTL (A13) and this service routinely
+ * The manifest is the unit that arrives and gets replaced. Only one is ever in flight, so when a new
+ * `manifestId` appears, anything downloaded for the previous one is dropped rather than reused.
+ *
+ * It deliberately carries no download URLs. A URL has a 30 minute TTL (A13) and this service routinely
  * waits hours for the policy gate to open, so a URL held alongside the manifest would almost always be
- * dead by the time it was used. [ApkUrlProvider] fetches one at download time instead.
+ * dead by the time it was used. [ApkUrlProvider] fetches one per app, at download time.
  */
 data class Manifest(
-    /** Opaque server handle used to fetch a download URL. */
+    /** Opaque server handle for this release. Identity for "is this the same manifest?". */
     val manifestId: String,
+    /** Every app this release covers, whether or not the vehicle needs it. */
+    val apps: List<ManifestApp>,
+) {
+    init {
+        require(apps.distinctBy { it.packageName }.size == apps.size) {
+            "a manifest must not list the same package twice"
+        }
+    }
+}
+
+/**
+ * One app inside a [Manifest]: what to install, and what it should verify as.
+ *
+ * Each app is its own APK with its own size, digest and signed URL. An app whose [versionCode] is not
+ * higher than the installed one is never downloaded — the comparison decides before any bytes move.
+ */
+data class ManifestApp(
     val packageName: String,
     val title: String,
     val versionName: String,

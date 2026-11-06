@@ -154,7 +154,7 @@ class HttpDownloadEngine(
                     }
                 }
 
-                HttpURLConnection.HTTP_NOT_FOUND -> return Outcome.Fatal("manifest not found (404)")
+                HttpURLConnection.HTTP_NOT_FOUND -> return Outcome.Fatal("app not found (404)")
 
                 else -> {
                     val retryable = code >= 500 || code == HTTP_TOO_MANY_REQUESTS
@@ -162,7 +162,7 @@ class HttpDownloadEngine(
                 }
             }
 
-            val total = connection.totalLength(offset) ?: request.manifest.sizeBytes.takeIf { it > 0 }
+            val total = connection.totalLength(offset) ?: request.app.sizeBytes.takeIf { it > 0 }
             connection.inputStream.use { stream -> copy(stream, offset, total, onProgress) }
             return Outcome.Done
         } catch (e: IOException) {

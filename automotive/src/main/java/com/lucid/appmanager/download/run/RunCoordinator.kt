@@ -2,9 +2,9 @@ package com.lucid.appmanager.download.run
 
 import androidx.work.ForegroundInfo
 import com.lucid.appmanager.catalogue.Manifest
+import com.lucid.appmanager.catalogue.ManifestApp
 import com.lucid.appmanager.catalogue.ManifestChecker
 import com.lucid.appmanager.catalogue.ApkUrlProvider
-import com.lucid.appmanager.catalogue.CheckResult
 import com.lucid.appmanager.download.config.ConfigRepository
 import com.lucid.appmanager.download.config.FeatureFlags
 import com.lucid.appmanager.download.engine.DownloadEngineFactory
@@ -132,10 +132,13 @@ class RunCoordinator(
             }
 
             // ---------------------------------------------------------------- ① manifest (FR-28, FR-29)
+            // ONE catalogue call for the whole run. The manifest lists every app in the release; this is
+            // where the plan is decided, and the loop below never asks again.
+            //
             // The catalogue is a cloud call. A link that dropped between the gate and here, or a backend
             // that is simply down, must not throw out of the worker with no event and no state (FR-28a):
             // it is a connectivity-class problem, so the run waits and rechecks like any network block.
-            val checked = try {
+            val plan = try {
                 checker.check()
             } catch (e: CancellationException) {
                 throw e
@@ -147,41 +150,32 @@ class RunCoordinator(
                 )
                 return
             }
-            val manifest: Manifest = when (checked) {
-                is CheckResult.Update -> checked.manifest
-                is CheckResult.UpToDate -> {
-                    complete(runId, device, cfg, EventType.UP_TO_DATE, "${checked.packageName} already at ${checked.versionCode}")
-                    return
-                }
-                is CheckResult.NotOffered -> {
-                    complete(runId, device, cfg, EventType.UP_TO_DATE, "catalogue offers nothing for ${checked.packageName}")
-                    return
-                }
+            if (plan == null) {
+                complete(runId, device, cfg, EventType.UP_TO_DATE, "the catalogue offers no manifest")
+                return
             }
+            val manifest = plan.manifest
 
             // One manifest at a time: when a new one arrives, the old one's bytes go (FR-39a, FR-39b).
             //
-            // This covers both halves of "what is already on disk". A *verified* APK means stages ①–④ are
-            // already done and can be skipped, but only for the manifest this run just checked. A
-            // *partial* .part file is just as dangerous: it is named after the package, not the version,
-            // so resuming one across a catalogue change would append new-version bytes onto old ones —
-            // caught later by the digest, but only after a wasted transfer and one of just two verify
-            // attempts. Anything in the directory that is not this manifest's is swept for the same
-            // reason: with one manifest in flight, there is nothing else it could belong to.
-            val staged = saved.apkPath?.let(::File)?.takeIf { it.exists() }
+            // This covers both halves of "what is already on disk". A *verified* APK means the download
+            // half is already done for that app and can be skipped, but only for the manifest this run
+            // just checked. A *partial* .part file is just as dangerous: it is named after the package,
+            // not the version, so resuming one across a catalogue change would append new-version bytes
+            // onto old ones — caught later by the digest, but only after a wasted transfer and one of
+            // just two verify attempts. Anything else in the directory is swept for the same reason:
+            // with one manifest in flight, there is nothing else it could belong to.
             val sameManifest = saved.manifestId != null && saved.manifestId == manifest.manifestId
-            val readyApk = staged?.takeIf { sameManifest }
-
-            val keep = if (sameManifest) {
-                setOf("${manifest.packageName}.apk", "${manifest.packageName}.apk$PART_SUFFIX")
+            val keep = if (sameManifest && saved.currentPackage != null) {
+                setOf("${saved.currentPackage}.apk", "${saved.currentPackage}.apk$PART_SUFFIX")
             } else {
                 emptySet()
             }
             val dropped = downloadDir.listFiles().orEmpty().filter { it.name !in keep && it.delete() }
-            // Nothing of this manifest survives, so the next transfer is a start and not a resume.
-            if (dropped.isNotEmpty()) startedBefore = false
             if (dropped.isNotEmpty()) {
-                store.update { it.copy(apkPath = null, progress = null, hasStarted = false) }
+                // Nothing of the previous manifest survives, so the next transfer is a start, not a resume.
+                startedBefore = false
+                store.update { it.copy(apkPath = null, currentPackage = null, progress = null, hasStarted = false) }
                 progress.set(null)
                 emit(
                     EventType.RESTARTED_FROM_ZERO, runId, device, null, cfg,
@@ -189,124 +183,53 @@ class RunCoordinator(
                         "dropped ${dropped.joinToString { it.name }}",
                 )
             }
-            var verified: File? = readyApk
 
-            if (verified == null) {
-                // -------------------------------------------------------- storage gate (FR-38, FR-30a)
-                // Re-snapshot first. The decision at the top of this run was taken before the catalogue
-                // call, and this evaluation sits immediately before the URL is fetched: a signed URL good
-                // for 30 minutes must not be spent on a run whose gate has closed again in the meantime.
-                // evaluate() runs all four rules, so a battery that dropped or a car that moved blocks here.
-                device = monitor.snapshot()
-                val storage = policy.evaluate(device, cfg, previousBlock, requiredBytes = manifest.sizeBytes)
-                if (storage is PolicyDecision.Blocked) {
-                    wait(runId, storage, device, progress.get(), cfg, saved, paused = false)
-                    return
-                }
-
-                // -------------------------------------------------------- ② URL, as late as possible (FR-30)
-                val urls = UrlSession(
-                    provider = urlProvider,
-                    manifestId = manifest.manifestId,
-                    clock = Clock.systemUTC(),
-                ) { emit(EventType.URL_REFRESHED, runId, device, progress.get(), cfg, "expires ${it.expiresAt}") }
-
-                val first = try {
-                    urls.open()
-                } catch (e: Exception) {
-                    fail(runId, device, progress.get(), cfg, EventType.DOWNLOAD_FAILED, "could not fetch a download URL: ${e.message}")
-                    return
-                }
-                emit(EventType.URL_FETCHED, runId, device, progress.get(), cfg, "expires ${first.expiresAt}")
-
-                // -------------------------------------------------------- ③ + ④ download and verify (FR-34 .. FR-41)
-                val target = File(downloadDir, "${manifest.packageName}.apk")
-                var attempt = 0
-                while (verified == null) {
-                    store.update {
-                        it.copy(runId = runId, phase = RunPhase.RUNNING, waitReason = null, hasStarted = true, manifestId = manifest.manifestId, apkPath = null)
-                    }
-                    if ((decision as? PolicyDecision.Allowed)?.chargingOverride == true && attempt == 0) {
-                        emit(EventType.CHARGING_OVERRIDE, runId, device, progress.get(), cfg, "charging below threshold")
-                    }
-                    setForeground(notifications.foregroundInfo(progress.get()))
-                    emit(if (startedBefore || attempt > 0) EventType.RESUMED else EventType.DOWNLOAD_STARTED, runId, device, progress.get(), cfg)
-
-                    val engine = engineFactory.create(DownloadRequest(manifest, urls, target))
-                    activeEngine.set(engine)
-                    val outcome = try {
-                        runEngine(engine, runId, progress, cfg, device) { d, c -> device = d; cfg = c }
-                    } finally {
-                        activeEngine.set(null)
-                    }
-                    when (outcome) {
-                        is DownloadOutcome.Paused -> {
-                            wait(runId, outcome.blocked, device, progress.get(), cfg, saved, paused = true)
-                            return
-                        }
-                        is DownloadOutcome.Failed -> {
-                            fail(runId, device, progress.get(), cfg, EventType.DOWNLOAD_FAILED, outcome.reason)
-                            return
-                        }
-                        DownloadOutcome.Done -> Unit
-                    }
-
-                    when (val result = verifier.verify(target, manifest)) {
-                        VerifyResult.Ok -> verified = target
-                        is VerifyResult.Failed -> {
-                            target.delete()
-                            attempt++
-                            emit(EventType.VERIFY_FAILED, runId, device, progress.get(), cfg, "${result.reason}: ${result.detail}")
-                            if (attempt >= MAX_VERIFY_ATTEMPTS) {                // FR-41: one retry, then stop
-                                fail(runId, device, null, cfg, EventType.DOWNLOAD_FAILED, "verification failed twice")
-                                return
-                            }
-                            progress.set(null)
-                        }
-                    }
-                }
-                store.update { it.copy(phase = RunPhase.INSTALLING, apkPath = verified.absolutePath, progress = null) }
+            // Apps already at or past the manifest version never enter the loop and never cost a byte.
+            plan.upToDate.forEach {
+                emit(EventType.UP_TO_DATE, runId, device, null, cfg, "${it.packageName} already at ${it.versionCode}")
             }
-
-            // ---------------------------------------------------------------- install gate (FR-42, FR-42a)
-            // No network rule here: the APK is already verified on local storage, so installing moves no
-            // bytes over the wire. Driving and battery still gate it — those are about whether installing
-            // now is safe, which losing Wi-Fi does not change.
-            device = monitor.snapshot()
-            val installGate = policy.evaluate(device, cfg, previousBlock, checkNetwork = false)
-            if (installGate is PolicyDecision.Blocked) {
-                // The APK stays on disk; a resumed run comes straight back here.
-                store.update { it.copy(phase = RunPhase.WAITING, waitReason = installGate.reason, apkPath = verified.absolutePath) }
-                emit(EventType.blocked(installGate.reason), runId, device, null, cfg, "install waiting: ${installGate.detail}")
-                scheduler.enqueueRecheck(cfg.recheckInterval)
+            if (!plan.hasWork) {
+                complete(runId, device, cfg, EventType.DOWNLOAD_COMPLETE, "nothing to do: ${plan.upToDate.size} app(s) already current")
                 return
             }
 
-            // ---------------------------------------------------------------- ⑤ install (FR-43 .. FR-51)
-            val mode = flags.flags.first().installMode
-            val installer = installerFor(mode)
-            emit(EventType.INSTALL_STARTED, runId, device, null, cfg, "mode $mode")
-
-            when (val outcome = installer.install(manifest, verified)) {
-                InstallOutcome.Installed -> {
-                    // FR-44: the platform's answer is advisory, the device is authoritative.
-                    val now = checker.installedVersionCode(manifest.packageName)
-                    if (now != null && now >= manifest.versionCode) {
-                        complete(runId, device, cfg, EventType.INSTALL_COMPLETE, "${manifest.packageName} at $now")
-                    } else {
-                        fail(runId, device, null, cfg, EventType.INSTALL_FAILED, "installer reported success but versionCode is $now")
-                    }
+            // ---------------------------------------------------------------- the loop (FR-58)
+            // Serial, one app at a time: one engine, one .part, one foreground notification, and a peak
+            // disk cost of the largest single app rather than the whole release. A *failure* ends that
+            // app and the run carries on — one bad APK on the server does not cost the other apps their
+            // update. A *block* is different: it suspends the whole run, which simply returns.
+            var installed = 0
+            var failed = 0
+            for (app in plan.updates) {
+                val outcome = runOne(
+                    app = app,
+                    manifest = manifest,
+                    runId = runId,
+                    saved = saved,
+                    sameManifest = sameManifest,
+                    previousBlock = previousBlock,
+                    decision = decision,
+                    progress = progress,
+                    startedBefore = startedBefore && saved.currentPackage == app.packageName,
+                    cfgIn = cfg,
+                    deviceIn = device,
+                    setForeground = setForeground,
+                    onState = { d, c -> device = d; cfg = c },
+                )
+                when (outcome) {
+                    AppOutcome.Blocked -> return                      // wait() already persisted the reason
+                    AppOutcome.Installed -> installed++
+                    AppOutcome.Failed -> failed++
                 }
-
-                InstallOutcome.Staged ->
-                    complete(runId, device, cfg, EventType.OVERRIDE_STAGED, "staged ${manifest.packageName} v${manifest.versionCode}; apply with adb, takes effect next reboot")
-
-                InstallOutcome.NeedsUserAction ->
-                    fail(runId, device, null, cfg, EventType.INSTALL_NEEDS_USER_ACTION, "platform wants a confirmation dialog; not privileged?")
-
-                is InstallOutcome.Failed ->
-                    fail(runId, device, null, cfg, EventType.INSTALL_FAILED, outcome.message)
+                startedBefore = false
             }
+
+            val summary = buildString {
+                append("$installed of ${plan.updates.size} installed")
+                if (plan.upToDate.isNotEmpty()) append(", ${plan.upToDate.size} already current")
+                if (failed > 0) append(", $failed failed")
+            }
+            complete(runId, device, cfg, EventType.DOWNLOAD_COMPLETE, summary)
         } catch (e: CancellationException) {
             // System stop or user cancel (FR-18, FR-22). The user path has already updated the state.
             withContext(NonCancellable) {
@@ -318,6 +241,213 @@ class RunCoordinator(
             }
             throw e
         }
+    }
+
+    /** What one app in the manifest did. `Blocked` means the whole run stopped, not just this app. */
+    private sealed interface AppOutcome {
+        data object Installed : AppOutcome
+        data object Failed : AppOutcome
+        data object Blocked : AppOutcome
+    }
+
+    /**
+     * Stages ②–⑤ for one app: storage, its own URL, download, verify, install gate, install.
+     *
+     * The URL is fetched here and not before the loop. Fetching every app's URL up front would start all
+     * their 30 minute clocks at once, and the last app's would expire while the first was still
+     * downloading. Storage is checked per app too, because each APK is deleted once it is installed, so
+     * peak usage is one app and not the sum of the release.
+     */
+    @Suppress("LongParameterList")
+    private suspend fun runOne(
+        app: ManifestApp,
+        manifest: Manifest,
+        runId: String,
+        saved: RunState,
+        sameManifest: Boolean,
+        previousBlock: BlockReason?,
+        decision: PolicyDecision,
+        progress: AtomicReference<Progress?>,
+        startedBefore: Boolean,
+        cfgIn: Config,
+        deviceIn: DeviceState?,
+        setForeground: suspend (ForegroundInfo) -> Unit,
+        onState: (DeviceState, Config) -> Unit,
+    ): AppOutcome {
+        var cfg = cfgIn
+        var device = deviceIn
+
+        // Already downloaded and verified for THIS app of THIS manifest? Then the download half is done.
+        var verified: File? = saved.apkPath
+            ?.let(::File)
+            ?.takeIf { it.exists() && sameManifest && saved.currentPackage == app.packageName }
+        if (verified != null) {
+            emit(EventType.STATE_RESTORED, runId, device, null, cfg, "${app.packageName}: verified APK already on disk")
+        }
+
+        if (verified == null) {
+            // ------------------------------------------------------------ storage gate (FR-38, FR-30a)
+            // Re-snapshot first. The decision at the top of the run was taken before the catalogue call,
+            // and this evaluation sits immediately before the URL is fetched: a signed URL good for 30
+            // minutes must not be spent on a run whose gate has closed again in the meantime.
+            // evaluate() runs all four rules, so a battery that dropped or a car that moved blocks here.
+            device = monitor.snapshot()
+            val storage = policy.evaluate(device, cfg, previousBlock, requiredBytes = app.sizeBytes)
+            if (storage is PolicyDecision.Blocked) {
+                wait(runId, storage, device, progress.get(), cfg, saved, paused = false)
+                return AppOutcome.Blocked
+            }
+
+            // ------------------------------------------------------------ ② URL, as late as possible (FR-30)
+            val urls = UrlSession(
+                provider = urlProvider,
+                manifestId = manifest.manifestId,
+                packageName = app.packageName,
+                clock = Clock.systemUTC(),
+            ) { emit(EventType.URL_REFRESHED, runId, device, progress.get(), cfg, "${app.packageName}: expires ${it.expiresAt}") }
+
+            val first = try {
+                urls.open()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failApp(runId, device, progress.get(), cfg, EventType.DOWNLOAD_FAILED,
+                    "${app.packageName}: could not fetch a download URL: ${e.message}")
+                return AppOutcome.Failed
+            }
+            emit(EventType.URL_FETCHED, runId, device, progress.get(), cfg, "${app.packageName}: expires ${first.expiresAt}")
+
+            // ------------------------------------------------------------ ③ + ④ download and verify (FR-34 .. FR-41)
+            val target = File(downloadDir, "${app.packageName}.apk")
+            var attempt = 0
+            while (verified == null) {
+                store.update {
+                    it.copy(
+                        runId = runId, phase = RunPhase.RUNNING, waitReason = null, hasStarted = true,
+                        manifestId = manifest.manifestId, currentPackage = app.packageName, apkPath = null,
+                    )
+                }
+                if ((decision as? PolicyDecision.Allowed)?.chargingOverride == true && attempt == 0) {
+                    emit(EventType.CHARGING_OVERRIDE, runId, device, progress.get(), cfg, "charging below threshold")
+                }
+                setForeground(notifications.foregroundInfo(progress.get()))
+                emit(
+                    if (startedBefore || attempt > 0) EventType.RESUMED else EventType.DOWNLOAD_STARTED,
+                    runId, device, progress.get(), cfg, app.packageName,
+                )
+
+                val engine = engineFactory.create(DownloadRequest(app, urls, target))
+                activeEngine.set(engine)
+                val outcome = try {
+                    runEngine(engine, runId, progress, cfg, device) { d, c -> device = d; cfg = c; onState(d, c) }
+                } finally {
+                    activeEngine.set(null)
+                }
+                when (outcome) {
+                    is DownloadOutcome.Paused -> {
+                        wait(runId, outcome.blocked, device, progress.get(), cfg, saved, paused = true)
+                        return AppOutcome.Blocked
+                    }
+                    is DownloadOutcome.Failed -> {
+                        failApp(runId, device, progress.get(), cfg, EventType.DOWNLOAD_FAILED, "${app.packageName}: ${outcome.reason}")
+                        return AppOutcome.Failed
+                    }
+                    DownloadOutcome.Done -> Unit
+                }
+
+                when (val result = verifier.verify(target, app)) {
+                    VerifyResult.Ok -> verified = target
+                    is VerifyResult.Failed -> {
+                        target.delete()
+                        attempt++
+                        emit(EventType.VERIFY_FAILED, runId, device, progress.get(), cfg, "${app.packageName}: ${result.reason}: ${result.detail}")
+                        if (attempt >= MAX_VERIFY_ATTEMPTS) {              // FR-41: one retry, then stop
+                            failApp(runId, device, null, cfg, EventType.DOWNLOAD_FAILED, "${app.packageName}: verification failed twice")
+                            return AppOutcome.Failed
+                        }
+                        progress.set(null)
+                    }
+                }
+            }
+            store.update {
+                it.copy(phase = RunPhase.INSTALLING, currentPackage = app.packageName, apkPath = verified.absolutePath, progress = null)
+            }
+        }
+
+        // ---------------------------------------------------------------- install gate (FR-42, FR-42a)
+        // No network rule here: the APK is already verified on local storage, so installing moves no
+        // bytes over the wire. Driving and battery still gate it — those are about whether installing
+        // now is safe, which losing Wi-Fi does not change.
+        device = monitor.snapshot()
+        val installGate = policy.evaluate(device, cfg, previousBlock, checkNetwork = false)
+        if (installGate is PolicyDecision.Blocked) {
+            // The APK stays on disk; the recheck comes straight back to this app and skips the download.
+            store.update {
+                it.copy(phase = RunPhase.WAITING, waitReason = installGate.reason,
+                    currentPackage = app.packageName, apkPath = verified.absolutePath)
+            }
+            emit(EventType.blocked(installGate.reason), runId, device, null, cfg, "${app.packageName}: install waiting: ${installGate.detail}")
+            scheduler.enqueueRecheck(cfg.recheckInterval)
+            return AppOutcome.Blocked
+        }
+
+        // ---------------------------------------------------------------- ⑤ install (FR-43 .. FR-51)
+        val mode = flags.flags.first().installMode
+        emit(EventType.INSTALL_STARTED, runId, device, null, cfg, "${app.packageName}: mode $mode")
+
+        val result = when (val outcome = installerFor(mode).install(app, verified)) {
+            InstallOutcome.Installed -> {
+                // FR-44: the platform's answer is advisory, the device is authoritative.
+                val now = checker.installedVersionCode(app.packageName)
+                if (now != null && now >= app.versionCode) {
+                    emit(EventType.INSTALL_COMPLETE, runId, device, null, cfg, "${app.packageName} at $now")
+                    AppOutcome.Installed
+                } else {
+                    failApp(runId, device, null, cfg, EventType.INSTALL_FAILED,
+                        "${app.packageName}: installer reported success but versionCode is $now")
+                    AppOutcome.Failed
+                }
+            }
+
+            InstallOutcome.Staged -> {
+                emit(EventType.OVERRIDE_STAGED, runId, device, null, cfg,
+                    "staged ${app.packageName} v${app.versionCode}; apply with adb, takes effect next reboot")
+                AppOutcome.Installed
+            }
+
+            InstallOutcome.NeedsUserAction -> {
+                failApp(runId, device, null, cfg, EventType.INSTALL_NEEDS_USER_ACTION,
+                    "${app.packageName}: platform wants a confirmation dialog; not privileged?")
+                AppOutcome.Failed
+            }
+
+            is InstallOutcome.Failed -> {
+                failApp(runId, device, null, cfg, EventType.INSTALL_FAILED, "${app.packageName}: ${outcome.message}")
+                AppOutcome.Failed
+            }
+        }
+
+        // This app is done either way. Its APK is not needed again, and the next app needs the room.
+        verified.delete()
+        store.update { it.copy(apkPath = null, currentPackage = null, progress = null, hasStarted = false) }
+        progress.set(null)
+        return result
+    }
+
+    /**
+     * One app failed. Unlike [fail], this does not end the run: the remaining apps are still attempted,
+     * so the per-app state is cleared but the schedule is left alone until the loop finishes.
+     */
+    private suspend fun failApp(
+        runId: String,
+        device: DeviceState?,
+        progress: Progress?,
+        cfg: Config,
+        type: EventType,
+        message: String,
+    ) {
+        store.update { it.copy(apkPath = null, currentPackage = null, progress = null, hasStarted = false) }
+        emit(type, runId, device, progress, cfg, message)
     }
 
     /**

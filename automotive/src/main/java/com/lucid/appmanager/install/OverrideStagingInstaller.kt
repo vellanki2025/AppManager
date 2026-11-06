@@ -1,7 +1,7 @@
 package com.lucid.appmanager.install
 
 import android.content.Context
-import com.lucid.appmanager.catalogue.Manifest
+import com.lucid.appmanager.catalogue.ManifestApp
 import com.lucid.appmanager.catalogue.ManifestChecker
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -42,12 +42,12 @@ class OverrideStagingInstaller(
 
     override val mode = InstallMode.APK_OVERRIDE
 
-    override suspend fun install(manifest: Manifest, apk: File): InstallOutcome = withContext(ioDispatcher) {
+    override suspend fun install(app: ManifestApp, apk: File): InstallOutcome = withContext(ioDispatcher) {
         if (!apk.exists() || apk.length() == 0L) {
             return@withContext InstallOutcome.Failed(-1, "APK missing or empty at ${apk.absolutePath}")
         }
 
-        val staged = stagedFile(manifest.packageName)
+        val staged = stagedFile(app.packageName)
         staged.parentFile?.mkdirs()
         staged.delete()
         try {
@@ -58,10 +58,10 @@ class OverrideStagingInstaller(
 
         store.save(
             PendingOverride(
-                packageName = manifest.packageName,
-                targetVersionCode = manifest.versionCode,
+                packageName = app.packageName,
+                targetVersionCode = app.versionCode,
                 stagedPath = staged.absolutePath,
-                digest = manifest.digest,
+                digest = app.digest,
                 stagedAt = System.currentTimeMillis(),
                 bootCountAtStaging = PendingOverrideStore.bootCount(context),
             ),

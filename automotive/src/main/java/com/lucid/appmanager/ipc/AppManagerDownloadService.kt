@@ -40,8 +40,9 @@ class AppManagerDownloadService : Service() {
     private val component get() = DownloadComponent.get()
 
     private val binder = object : IAppManagerDownloadService.Stub() {
+        /** Every app the current manifest covers, whether or not it needs an update. One row each. */
         override fun getAvailableApps(): List<AppInfo> = runBlocking {
-            component.catalogue.availableManifests().map { a ->
+            component.catalogue.currentManifest()?.apps.orEmpty().map { a ->
                 AppInfo(
                     packageName = a.packageName,
                     title = a.title,

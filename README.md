@@ -169,6 +169,7 @@ adb logcat -s DlService          # replies and events land here, tagged [debug]
 | Use case | Action | API |
 |---|---|---|
 | Inject the manifest to install | `SET_MANIFEST --es pkg com.x --el code 42 [--el size N] [--es digest <hex>]` | `setManifest` |
+| Add another app to the manifest | `ADD_APP --es pkg com.y --el code 7 [--el size N] [--es digest <hex>]` | `addApp` |
 | Prove the up-to-date short-circuit | `SET_MANIFEST` with the installed `code` | — |
 | Back to the real catalogue | `CLEAR_MANIFEST` | `clearManifest` |
 | Transparent mid-download refresh | `EXPIRE_URL_NOW` | `expireUrlNow` |
@@ -272,7 +273,7 @@ keeps its offset across pauses within the process.
 ## Deferred
 
 A platform helper service for privileged partition writes — the production answer to the override install
-path. Uninstall, downgrade and rollback. Split APKs and APEX. More than one manifest per run.
+path. Uninstall, downgrade and rollback. Split APKs and APEX. More than one manifest in flight.
 
 Unit tests are not written yet; `PolicyEvaluator`, `NetworkClassifier`, `DrivingStateMapper` and
 `Scheduler.delayToNext` are pure and ready for them.
