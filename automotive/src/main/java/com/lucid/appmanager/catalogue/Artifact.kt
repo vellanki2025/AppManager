@@ -7,10 +7,10 @@ import java.time.Instant
  *
  * Deliberately carries no download URL. The URL has a 30 minute TTL (A13) and this service routinely
  * waits hours for the policy gate to open, so a URL held alongside the artifact would almost always be
- * dead by the time it was used. [ArtifactUrlProvider] mints one at transfer time instead.
+ * dead by the time it was used. [ArtifactUrlProvider] fetches one at download time instead.
  */
 data class Artifact(
-    /** Opaque server handle used to mint a download URL. */
+    /** Opaque server handle used to fetch a download URL. */
     val artifactId: String,
     val packageName: String,
     val title: String,

@@ -20,7 +20,7 @@ sealed interface VerifyResult {
 }
 
 /**
- * Gate between a finished transfer and an install (FR-39 … FR-41).
+ * Gate between a finished download and an install (FR-39 … FR-41).
  *
  * Checks run cheapest-first — length, APK parse, digest, signing certificate — so a truncated file is
  * rejected before anything hashes several hundred megabytes of it.

@@ -62,6 +62,13 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
 <body>
 <main>
   <h1>Vehicle updater service (Android)</h1>
+  <div style="border-left:4px solid #b4531a;background:#fdeee3;color:#3a2615;padding:12px 16px;border-radius:0 8px 8px 0;margin:0 0 18px;font-size:14px;line-height:1.5">
+    <b>Partly superseded.</b> The cloud contract here is the older <b>signed manifest</b>, which carried the download URL inside it. v4 splits that into two calls - a catalogue of artifacts, then a separately fetched APK URL with a 30-minute TTL - because a short-lived URL cannot live inside a long-lived document (assumption A12). The HMI behaviour, the hold reasons and the analytics events below are still current.
+    The on-vehicle download and install pipeline as built is in
+    <a href="docs/event-flow.html" style="color:#b4531a">docs/event-flow.html</a>,
+    and <a href="docs/design.md" style="color:#b4531a">docs/design.md</a>.
+  </div>
+
   <p class="sub">Sequence diagrams, rules, in-app experience and lifecycle events for the on-vehicle update service in Lucid App Updates. Two cases: the 1 AM automatic update and Update now. Vehicle side only; the Cloud API appears just as the boundary.</p>
 
   <div class="tabs" role="tablist" id="tabs">
@@ -337,7 +344,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
       {f:'hmi',t:'svc',x:'updateNow(appId)'},
       {f:'svc',t:'net',x:'Active network: validated? metered? captive portal? speed?'},
       {f:'net',t:'svc',x:'Public WiFi, validated, about 0.8 Mbps',r:1},
-      {note:'Captive portal (login page) or no internet counts as no network. HMI: "Connect to the internet to update." Cellular is used only when the Settings option is on, which needs a connectivity subscription; there is no prompt here. Hotspots and Bluetooth tethering are never used.',a:'hmi',b:'net'},
+      {note:'Captive portal (login page) or no internet counts as no network. HMI: "Connect to the internet to update." Cellular is used only when the Settings option is on, which needs a connectivity subscription; there is no prompt here. Metered hotspots are never used; Bluetooth PAN is not a supported transport at all.',a:'hmi',b:'net'},
       {f:'svc',t:'svc',x:'Usable but slow: 25 MB at 0.8 Mbps is about 4 min'},
       {f:'svc',t:'hmi',x:'onProgress(percent, about 4 min left)',r:1},
       {f:'svc',t:'cloud',x:'GET /v1/manifestapks'},
@@ -580,7 +587,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
   table('rtbl',['Condition','1 AM automatic update','Update now'],[
     ['When','Download: any time the checks pass. Install: only in the 1 to 5 AM window (vehicle local time), starting with random jitter.','Any time the user taps Update now. The install follows the install rules.'],
     ['Vehicle state','Driving: strictly no download and no install. Download: parked; pauses when driving starts and resumes after Park for 10 seconds. Install: parked and ignition off; pause if a door opens or the ignition turns on.','Driving: strictly no download and no install. Parked (Park for 10 seconds): download, then install. A running commit is never interrupted.'],
-    ['Network','WiFi that is validated and not metered, at least 2 Mbps. Cellular only if the Settings option "WiFi or cellular" is on; that option exists only with a connectivity subscription.','Same network rule as automatic: WiFi, or cellular when the Settings option is on and the vehicle has a subscription. No prompt at download time. Hotspots and Bluetooth tethering never. Slow: continue and show an estimate. Stalled 60 s: pause and resume.'],
+    ['Network','WiFi that is validated and not metered, at least 2 Mbps. Cellular only if the Settings option "WiFi or cellular" is on; that option exists only with a connectivity subscription.','Same network rule as automatic: WiFi, or cellular when the Settings option is on and the vehicle has a subscription. No prompt at download time. Metered hotspots never; Bluetooth PAN is not a supported transport at all. Slow: continue and show an estimate. Stalled 60 s: pause and resume.'],
     ['Public WiFi and captive portal','A captive portal counts as no network. An untrusted network is acceptable because the APK is protected by signatures and hashes.','Same. The HMI says "Connect to the internet to update."'],
     ['Battery','HV battery at least 30% or charging, and 12V above its minimum.','Download needs at least 10%. Install needs at least 20% or a charger connected.'],
     ['Storage','Free space at least 2x the APK size. If short and an app is already downloaded, install it first (if its rules allow) and delete its APK, then download. Otherwise HELD (low_storage).','Same. The HMI says "Not enough storage" if it is still short. See diagram 12.'],

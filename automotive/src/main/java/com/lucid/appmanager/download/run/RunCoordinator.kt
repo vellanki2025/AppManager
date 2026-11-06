@@ -2,9 +2,9 @@ package com.lucid.appmanager.download.run
 
 import androidx.work.ForegroundInfo
 import com.lucid.appmanager.catalogue.Artifact
-import com.lucid.appmanager.catalogue.ArtifactResolver
+import com.lucid.appmanager.catalogue.ArtifactChecker
 import com.lucid.appmanager.catalogue.ArtifactUrlProvider
-import com.lucid.appmanager.catalogue.Resolution
+import com.lucid.appmanager.catalogue.CheckResult
 import com.lucid.appmanager.download.config.ConfigRepository
 import com.lucid.appmanager.download.config.FeatureFlags
 import com.lucid.appmanager.download.engine.DownloadEngineFactory
@@ -53,7 +53,7 @@ import java.util.concurrent.atomic.AtomicReference
  * stays an orchestrator rather than growing the logic itself:
  *
  * ```
- * gate → ① resolve artifact → ② mint URL → ③ transfer → ④ verify → gate again → ⑤ install
+ * gate → ① artifact check → ② fetch APK URL → ③ download → ④ verify → gate again → ⑤ install
  * ```
  *
  * A resumed run that already has a verified APK on disk skips ①–④ entirely. That is what stops a
@@ -70,7 +70,7 @@ class RunCoordinator(
     private val events: EventBus,
     private val notifications: NotificationController,
     private val clock: Clock,
-    private val resolver: ArtifactResolver,
+    private val checker: ArtifactChecker,
     private val urlProvider: ArtifactUrlProvider,
     private val verifier: IntegrityVerifier,
     private val installerFor: (InstallMode) -> Installer,
@@ -82,11 +82,16 @@ class RunCoordinator(
     /** The engine of the run in flight, so a cancel can tell it to drop its partial file. */
     private val activeEngine = AtomicReference<com.lucid.appmanager.download.engine.DownloadEngine?>(null)
 
-    /** Outcome of the engine stage, which can finish, pause on policy, or fail. */
-    private sealed interface Transfer {
-        data object Done : Transfer
-        data class Paused(val blocked: PolicyDecision.Blocked) : Transfer
-        data class Failed(val reason: String, val retryable: Boolean) : Transfer
+    /**
+     * Outcome of the download stage: finished, paused on policy, or failed.
+     *
+     * Distinct from [DownloadResult], which the engine returns and knows nothing about policy.
+     * `Paused` exists only here, because only the coordinator can tell a closing gate from an error.
+     */
+    private sealed interface DownloadOutcome {
+        data object Done : DownloadOutcome
+        data class Paused(val blocked: PolicyDecision.Blocked) : DownloadOutcome
+        data class Failed(val reason: String, val retryable: Boolean) : DownloadOutcome
     }
 
     /**
@@ -128,8 +133,8 @@ class RunCoordinator(
             // The catalogue is a cloud call. A link that dropped between the gate and here, or a backend
             // that is simply down, must not throw out of the worker with no event and no state (FR-28a):
             // it is a connectivity-class problem, so the run waits and rechecks like any network block.
-            val resolution = try {
-                resolver.resolve()
+            val checked = try {
+                checker.check()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -140,20 +145,20 @@ class RunCoordinator(
                 )
                 return
             }
-            val artifact: Artifact = when (resolution) {
-                is Resolution.Update -> resolution.artifact
-                is Resolution.UpToDate -> {
-                    complete(runId, device, cfg, EventType.UP_TO_DATE, "${resolution.packageName} already at ${resolution.versionCode}")
+            val artifact: Artifact = when (checked) {
+                is CheckResult.Update -> checked.artifact
+                is CheckResult.UpToDate -> {
+                    complete(runId, device, cfg, EventType.UP_TO_DATE, "${checked.packageName} already at ${checked.versionCode}")
                     return
                 }
-                is Resolution.NotOffered -> {
-                    complete(runId, device, cfg, EventType.UP_TO_DATE, "catalogue offers nothing for ${resolution.packageName}")
+                is CheckResult.NotOffered -> {
+                    complete(runId, device, cfg, EventType.UP_TO_DATE, "catalogue offers nothing for ${checked.packageName}")
                     return
                 }
             }
 
             // A verified APK from an earlier attempt means ①–④ are already done (design §3) — but only
-            // when it is an APK of the artifact this run just resolved. The catalogue can move on while a
+            // when it is an APK of the artifact this run just checked. The catalogue can move on while a
             // run sits blocked, and reusing the older file would install the wrong version.
             val staged = saved.apkPath?.let(::File)?.takeIf { it.exists() }
             val readyApk = staged?.takeIf { saved.artifactId == artifact.artifactId }
@@ -170,7 +175,7 @@ class RunCoordinator(
             if (verified == null) {
                 // -------------------------------------------------------- storage gate (FR-38, FR-30a)
                 // Re-snapshot first. The decision at the top of this run was taken before the catalogue
-                // call, and this evaluation sits immediately before the URL is minted: a signed URL good
+                // call, and this evaluation sits immediately before the URL is fetched: a signed URL good
                 // for 30 minutes must not be spent on a run whose gate has closed again in the meantime.
                 // evaluate() runs all four rules, so a battery that dropped or a car that moved blocks here.
                 device = monitor.snapshot()
@@ -190,12 +195,12 @@ class RunCoordinator(
                 val first = try {
                     urls.open()
                 } catch (e: Exception) {
-                    fail(runId, device, progress.get(), cfg, EventType.DOWNLOAD_FAILED, "could not mint a download URL: ${e.message}")
+                    fail(runId, device, progress.get(), cfg, EventType.DOWNLOAD_FAILED, "could not fetch a download URL: ${e.message}")
                     return
                 }
                 emit(EventType.URL_FETCHED, runId, device, progress.get(), cfg, "expires ${first.expiresAt}")
 
-                // -------------------------------------------------------- ③ + ④ transfer and verify (FR-34 .. FR-41)
+                // -------------------------------------------------------- ③ + ④ download and verify (FR-34 .. FR-41)
                 val target = File(downloadDir, "${artifact.packageName}.apk")
                 var attempt = 0
                 while (verified == null) {
@@ -210,21 +215,21 @@ class RunCoordinator(
 
                     val engine = engineFactory.create(DownloadRequest(artifact, urls, target))
                     activeEngine.set(engine)
-                    val transfer = try {
+                    val outcome = try {
                         runEngine(engine, runId, progress, cfg, device) { d, c -> device = d; cfg = c }
                     } finally {
                         activeEngine.set(null)
                     }
-                    when (transfer) {
-                        is Transfer.Paused -> {
-                            wait(runId, transfer.blocked, device, progress.get(), cfg, saved, paused = true)
+                    when (outcome) {
+                        is DownloadOutcome.Paused -> {
+                            wait(runId, outcome.blocked, device, progress.get(), cfg, saved, paused = true)
                             return
                         }
-                        is Transfer.Failed -> {
-                            fail(runId, device, progress.get(), cfg, EventType.DOWNLOAD_FAILED, transfer.reason)
+                        is DownloadOutcome.Failed -> {
+                            fail(runId, device, progress.get(), cfg, EventType.DOWNLOAD_FAILED, outcome.reason)
                             return
                         }
-                        Transfer.Done -> Unit
+                        DownloadOutcome.Done -> Unit
                     }
 
                     when (val result = verifier.verify(target, artifact)) {
@@ -266,7 +271,7 @@ class RunCoordinator(
             when (val outcome = installer.install(artifact, verified)) {
                 InstallOutcome.Installed -> {
                     // FR-44: the platform's answer is advisory, the device is authoritative.
-                    val now = resolver.installedVersionCode(artifact.packageName)
+                    val now = checker.installedVersionCode(artifact.packageName)
                     if (now != null && now >= artifact.versionCode) {
                         complete(runId, device, cfg, EventType.INSTALL_COMPLETE, "${artifact.packageName} at $now")
                     } else {
@@ -320,7 +325,7 @@ class RunCoordinator(
         cfgIn: Config,
         deviceIn: DeviceState?,
         onState: (DeviceState, Config) -> Unit,
-    ): Transfer {
+    ): DownloadOutcome {
         var cfg = cfgIn
         var device = deviceIn
         var pause: PolicyDecision.Blocked? = null
@@ -347,12 +352,12 @@ class RunCoordinator(
             watcher.cancel()
         }
 
-        pause?.let { return Transfer.Paused(it) }
+        pause?.let { return DownloadOutcome.Paused(it) }
         return when (val r = result) {
-            DownloadResult.Success -> Transfer.Done
-            is DownloadResult.Retryable -> Transfer.Failed(r.reason, retryable = true)
-            is DownloadResult.Fatal -> Transfer.Failed(r.reason, retryable = false)
-            null -> Transfer.Failed("engine returned nothing", retryable = true)
+            DownloadResult.Success -> DownloadOutcome.Done
+            is DownloadResult.Retryable -> DownloadOutcome.Failed(r.reason, retryable = true)
+            is DownloadResult.Fatal -> DownloadOutcome.Failed(r.reason, retryable = false)
+            null -> DownloadOutcome.Failed("engine returned nothing", retryable = true)
         }
     }
 

@@ -42,7 +42,7 @@ object DebugState {
     @Volatile var expireUrlNow: Boolean = false
     @Volatile var failUrlFetchTimes: Int = 0
 
-    // transfer
+    // download
     @Volatile var rangeSupported: Boolean = true
     @Volatile var forcedHttpStatus: Int? = null
     @Volatile var transientFailuresLeft: Int = 0

@@ -25,7 +25,7 @@ import java.util.concurrent.ConcurrentHashMap
  * rather than launched, see the KDoc on that value.
  *
  * The commit result arrives asynchronously through a PendingIntent, so this suspends on a deferred keyed
- * by session id. Whatever it returns, [com.lucid.appmanager.catalogue.ArtifactResolver] re-reads the
+ * by session id. Whatever it returns, [com.lucid.appmanager.catalogue.ArtifactChecker] re-reads the
  * installed versionCode afterwards: the platform's answer is advisory, the device is authoritative (FR-44).
  */
 class PackageManagerInstaller(

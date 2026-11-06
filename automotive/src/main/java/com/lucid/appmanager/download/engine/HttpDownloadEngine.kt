@@ -20,15 +20,15 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * Real HTTP transfer (FR-34 … FR-37).
+ * Real HTTP download (FR-34 … FR-37).
  *
  * Streams to `<target>.part` and renames atomically on success, so a half file is never mistaken for a
- * finished one. Resumes with `Range` + `If-Range`; a server that ignores the range restarts the transfer
+ * finished one. Resumes with `Range` + `If-Range`; a server that ignores the range restarts the download
  * from zero rather than corrupting the file.
  *
  * A 401 or 403 is read as "the signed URL expired", not as a real authorization failure, because a 30
- * minute TTL against multi-hundred-megabyte transfers makes expiry the expected cause (FR-36). The engine
- * re-mints the URL and resumes before the retry ladder sees the failure at all.
+ * minute TTL against multi-hundred-megabyte downloads makes expiry the expected cause (FR-36). The engine
+ * re-fetches the URL and resumes before the retry ladder sees the failure at all.
  *
  * Uses [HttpURLConnection] rather than adding an HTTP client dependency; the project keeps its dependency
  * set deliberately small and this needs only ranged GETs.
@@ -64,7 +64,7 @@ class HttpDownloadEngine(
 
             while (true) {
                 coroutineContext.ensureActive()
-                when (val outcome = attemptTransfer(onProgress)) {
+                when (val outcome = attemptDownload(onProgress)) {
                     is Outcome.Done -> {
                         if (!renameIntoPlace()) return@withContext DownloadResult.Fatal("could not finalise ${request.target.name}")
                         return@withContext DownloadResult.Success
@@ -76,7 +76,7 @@ class HttpDownloadEngine(
                         attempt++
                         if (attempt >= maxAttempts) return@withContext DownloadResult.Retryable("gave up after $attempt attempts: ${outcome.reason}")
                         onEvent(EngineEvent.RetryScheduled(attempt, backoff, outcome.reason))
-                        Log.w(Logger.TAG, "transfer attempt $attempt failed (${outcome.reason}); retrying in $backoff")
+                        Log.w(Logger.TAG, "download attempt $attempt failed (${outcome.reason}); retrying in $backoff")
                         delay(backoff.inWholeMilliseconds)
                         backoff = minOf(backoff * 2, maxBackoff)
                     }
@@ -101,7 +101,7 @@ class HttpDownloadEngine(
         data class Fatal(val reason: String) : Outcome
     }
 
-    private suspend fun attemptTransfer(onProgress: (Long, Long?) -> Unit): Outcome {
+    private suspend fun attemptDownload(onProgress: (Long, Long?) -> Unit): Outcome {
         var offset = if (part.exists()) part.length() else 0L
 
         // Renew proactively rather than discovering expiry mid-read.
@@ -146,7 +146,7 @@ class HttpDownloadEngine(
                 }
 
                 HttpURLConnection.HTTP_UNAUTHORIZED, HttpURLConnection.HTTP_FORBIDDEN -> {
-                    // Expected: the signed URL aged out mid-transfer (FR-31).
+                    // Expected: the signed URL aged out mid-download (FR-31).
                     connection.disconnect()
                     return when (val r = renew()) {
                         is Outcome.Fatal -> r

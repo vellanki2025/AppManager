@@ -6,6 +6,7 @@ import com.lucid.appmanager.download.DownloadComponent
 import com.lucid.appmanager.download.model.BatteryState
 import com.lucid.appmanager.download.model.DrivingState
 import com.lucid.appmanager.download.model.NetworkClass
+import com.lucid.appmanager.download.model.NetworkMode
 import com.lucid.appmanager.install.InstallMode
 import com.lucid.appmanager.install.OverrideCheck
 import kotlinx.coroutines.CoroutineScope
@@ -92,8 +93,8 @@ object DebugFlagActions {
     /**
      * Force the driving signal. `null` returns the real one.
      *
-     * Use case: driving blocks a start, pauses a transfer mid-run, and blocks an install (FR-42).
-     * Action `SET_DRIVING --es state MOVING`.
+     * Use case: driving blocks a start, pauses a download mid-run, and blocks an install (FR-42).
+     * Action `SET_DRIVING --es state DRIVING`.
      */
     fun setDrivingState(state: DrivingState?) = Decorators.driving.set(state)
 
@@ -124,6 +125,48 @@ object DebugFlagActions {
      * Action `SET_CELLULAR_SUBSCRIBED --ez subscribed false`.
      */
     fun setCellularSubscribed(value: Boolean?) = Decorators.subscription.set(value)
+
+    /**
+     * The five network situations the gate can actually be in, as one control.
+     *
+     * The service keeps the observed [NetworkClass] and the owner's [NetworkMode] apart, because they are
+     * different kinds of input: one is what the vehicle *has*, the other is what the owner *allows*. On a
+     * bench that separation is only bookkeeping — three knobs with combinations that cannot occur — so
+     * this sets the class, the subscription and the mode together to one coherent situation.
+     *
+     * Use case: step through every network outcome without reasoning about which knob does what.
+     * Action `SET_NETWORK_TYPE --es type CELLULAR_ENABLED`.
+     */
+    fun setNetworkType(type: NetworkType) = scope.launch {
+        // Config goes through DataStore and the decorators are in-memory, so the slow one goes first:
+        // otherwise a TRIGGER_NOW landing in between sees the new class against the old mode and
+        // reports a verdict for a situation that was never selected.
+        component.config.update { it.copy(networkMode = type.mode) }
+        Decorators.network.set(type.cls)
+        Decorators.subscription.set(type.subscribed)
+    }
+
+    /** One coherent network situation: what the car has, plus what the owner has allowed. */
+    enum class NetworkType(
+        val cls: NetworkClass,
+        val subscribed: Boolean,
+        val mode: NetworkMode,
+    ) {
+        /** Validated unmetered Wi-Fi. The only class allowed in `WIFI_ONLY`. */
+        UNMETERED_WIFI(NetworkClass.UNMETERED_WIFI, false, NetworkMode.WIFI_ONLY),
+
+        /** A phone hotspot. Refused in both modes — the owner's phone allowance is not ours to spend. */
+        METERED_WIFI(NetworkClass.METERED_WIFI, false, NetworkMode.WIFI_ONLY),
+
+        /** The vehicle's own cellular, with the Settings option on and a subscription. Allowed. */
+        CELLULAR_ENABLED(NetworkClass.CELLULAR, true, NetworkMode.WIFI_OR_CELLULAR),
+
+        /** Cellular present and allowed in Settings, but the vehicle has no subscription. Refused. */
+        CELLULAR_NO_SUBSCRIPTION(NetworkClass.CELLULAR, false, NetworkMode.WIFI_OR_CELLULAR),
+
+        /** No usable link at all. */
+        NONE(NetworkClass.NONE, false, NetworkMode.WIFI_ONLY),
+    }
 
     /**
      * Force free space, in megabytes.
@@ -169,9 +212,9 @@ object DebugFlagActions {
     fun clearArtifact() { DebugState.artifact = null }
 
     /**
-     * Make the next minted URL already expired.
+     * Make the next fetched URL already expired.
      *
-     * Use case: the transparent mid-transfer refresh (FR-31) — the run must not fail or restart.
+     * Use case: the transparent mid-download refresh (FR-31) — the run must not fail or restart.
      * Action `EXPIRE_URL_NOW`.
      */
     fun expireUrlNow() { DebugState.expireUrlNow = true }
@@ -185,10 +228,10 @@ object DebugFlagActions {
      */
     fun failUrlFetch(times: Int) { DebugState.failUrlFetchTimes = times }
 
-    /** Shorten the URL TTL so expiry happens during a transfer. Action `SET_URL_TTL --ei seconds 30`. */
+    /** Shorten the URL TTL so expiry happens during a download. Action `SET_URL_TTL --ei seconds 30`. */
     fun setUrlTtlSeconds(seconds: Int) { DebugState.urlTtlMillis = seconds * 1000L }
 
-    // ---------------------------------------------------------------- 8.5 transfer
+    // ---------------------------------------------------------------- 8.5 download
 
     /**
      * Pretend the server does not support `Range`.
@@ -215,9 +258,9 @@ object DebugFlagActions {
     fun forceTransientFailures(times: Int) { DebugState.transientFailuresLeft = times }
 
     /**
-     * Throttle the transfer so pause and resume are observable.
+     * Throttle the download so pause and resume are observable.
      *
-     * Use case: driving or battery pausing mid-transfer, and resume picking up the offset.
+     * Use case: driving or battery pausing mid-download, and resume picking up the offset.
      * Action `SET_SPEED --ei kbps 500`.
      */
     fun setSpeedKbps(kbps: Int?) { DebugState.speedKbps = kbps }
@@ -241,7 +284,7 @@ object DebugFlagActions {
     fun truncateNextDownload(bytes: Int) { DebugState.truncateNextDownloadBy = bytes }
 
     /**
-     * Use an APK already on the device instead of transferring one.
+     * Use an APK already on the device instead of downloading one.
      *
      * Use case: signature mismatch (FR-40) with a differently-signed APK, and every install case without a
      * backend. Push one first: `adb push app.apk /data/local/tmp/app.apk`.
@@ -252,10 +295,10 @@ object DebugFlagActions {
     // ---------------------------------------------------------------- 8.7 install, path A
 
     /**
-     * Install a local APK immediately, skipping the catalogue and the transfer.
+     * Install a local APK immediately, skipping the catalogue and the download.
      *
      * Use case: the `PackageInstaller` path end to end, including the versionCode re-read (FR-44).
-     * Combine with `SET_DRIVING MOVING` to prove install is gated (FR-42).
+     * Combine with `SET_DRIVING DRIVING` to prove install is gated (FR-42).
      * Action `INSTALL_NOW --es path /data/local/tmp/app.apk`.
      */
     fun installNow(apk: File) = scope.launch {

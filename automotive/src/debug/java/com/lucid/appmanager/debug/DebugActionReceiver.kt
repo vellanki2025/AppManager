@@ -58,6 +58,13 @@ class DebugActionReceiver : BroadcastReceiver() {
                 null
             }
             "SET_NETWORK" -> { DebugFlagActions.setNetworkClass(intent.enumExtra<NetworkClass>("class")); null }
+            "SET_NETWORK_TYPE" -> {
+                val type = intent.enumExtra<DebugFlagActions.NetworkType>("type")
+                    ?: return log("SET_NETWORK_TYPE needs --es type " +
+                        DebugFlagActions.NetworkType.entries.joinToString("|") { it.name })
+                DebugFlagActions.setNetworkType(type)
+                null
+            }
             "SET_CELLULAR_SUBSCRIBED" -> {
                 DebugFlagActions.setCellularSubscribed(
                     if (intent.hasExtra("subscribed")) intent.getBooleanExtra("subscribed", false) else null,
@@ -85,7 +92,7 @@ class DebugActionReceiver : BroadcastReceiver() {
             "FAIL_URL_FETCH" -> { DebugFlagActions.failUrlFetch(intent.getIntExtra("times", 1)); null }
             "SET_URL_TTL" -> { DebugFlagActions.setUrlTtlSeconds(intent.getIntExtra("seconds", 1800)); null }
 
-            // 8.5 transfer
+            // 8.5 download
             "SET_RANGE_SUPPORT" -> { DebugFlagActions.setRangeSupport(intent.getBooleanExtra("supported", true)); null }
             "FORCE_HTTP_STATUS" -> { DebugFlagActions.forceHttpStatus(intent.getIntExtra("code", 500)); null }
             "FORCE_TRANSIENT_FAILURES" -> { DebugFlagActions.forceTransientFailures(intent.getIntExtra("times", 1)); null }

@@ -119,7 +119,7 @@ private fun NetworkCard(s: DownloadStatus?, c: DownloadConfig?, update: Update) 
 private fun DrivingCard(s: DownloadStatus?) {
     Section("Driving state") {
         Text("Current: " + (s?.driving?.ifEmpty { null } ?: "waiting for signals"))
-        Text("Download runs only while PARKED (gear in Park, speed zero).", style = MaterialTheme.typography.bodySmall)
+        Text("Download runs only while the vehicle is stationary: parked, stopped, in accessory or off.", style = MaterialTheme.typography.bodySmall)
     }
 }
 

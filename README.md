@@ -4,9 +4,9 @@ Android Automotive (AAOS) privileged app that downloads the app bundle once a da
 vehicle is safely parked, the EV battery is healthy and an allowed network is available, then verifies and
 installs it.
 
-Requirements: [v3](android-download-service-requirements-v3.md) (the shell) and
-[v4](android-download-service-requirements-v4.md) (cloud contract, real transfer, install).
-Design: [docs/design-v4-install-and-engine.md](docs/design-v4-install-and-engine.md).
+Design: [docs/design.md](docs/design.md) — scope, the run pipeline, the policy gate, the cloud contract,
+both install paths, the decisions behind them, and what is still unproven.
+Interactive walkthrough: [docs/event-flow.html](docs/event-flow.html).
 
 Targets Android 12 and 15 (`minSdk 31`, `compileSdk/targetSdk 35`). Kotlin, coroutines, WorkManager,
 DataStore, Compose, AIDL. Gradle 9.4.1, AGP 9.1.1 (built-in Kotlin).
@@ -21,7 +21,7 @@ Single app module `automotive`, package `com.lucid.appmanager`:
 | `signals` | Adapters from the vehicle signal library to the two core interfaces. The only place that touches vehicle APIs. |
 | `ipc` | `AppManagerDownloadService`, the AIDL surface used by the Compose UI and by other store clients |
 | `ui` | Compose status screen; talks to the service only through AIDL |
-| `catalogue` | `Artifact`, `CatalogueProvider`, `ArtifactUrlProvider`, `ArtifactResolver`. Stubs until the backend exists |
+| `catalogue` | `Artifact`, `CatalogueProvider`, `ArtifactUrlProvider`, `ArtifactChecker`. Stubs until the backend exists |
 | `install` | Both install paths, the pending-override record and the non-exported install result receiver |
 | `download.verify` | `IntegrityVerifier`: length, APK parse, digest, signing certificate |
 | `debug` | **Debug builds only.** `DebugFlagActions`, its adb receiver and the decorators they drive |
@@ -32,7 +32,7 @@ Fill in the `TODO(signal-lib)` blocks in
 `VehicleDrivingStateProvider.kt` and `VehicleBatteryMonitor.kt` under [signals/](automotive/src/main/java/com/lucid/appmanager/signals/):
 
 ```kotlin
-interface DrivingStateProvider             { val driving: Flow<DrivingState> }   // PARKED, IDLING, MOVING, UNKNOWN
+interface DrivingStateProvider             { val driving: Flow<DrivingState> }   // PARKED, DRIVING, ACCESSORY, STOPPED, TURNED_OFF, UNKNOWN
 interface BatteryMonitor                   { val battery: Flow<BatteryState> }   // levelPercent, charging
 interface ConnectivitySubscriptionProvider { val subscribed: Flow<Boolean> }     // vehicle data plan active
 ```
@@ -49,7 +49,7 @@ emit fail-safe values, so the gate blocks on `DRIVING`. Add the library's permis
    metered hotspots are always blocked), then
 
    ```
-   ① resolve artifact → ② mint URL → ③ transfer → ④ verify → gate again → ⑤ install
+   ① artifact check → ② fetch APK URL → ③ download → ④ verify → gate again → ⑤ install
    ```
 
    Mid-run violations cancel the engine, persist `WAITING(reason)` and end the worker. A system stop is
@@ -109,10 +109,10 @@ is advisory, the device is authoritative.
 ## Cloud contract
 
 Two calls, deliberately. The artifact says *what* to install and is cached across a wait; the URL is
-minted separately, lives 30 minutes, and is fetched only once the policy gate has opened and the transfer
+fetched separately, lives 30 minutes, and is fetched only once the policy gate has opened and the download
 is about to begin. A run routinely waits hours, so a URL fetched any earlier would be dead on arrival.
 
-An expiry mid-transfer is routine, not a failure: the engine re-mints and resumes from its offset
+An expiry mid-download is routine, not a failure: the engine re-fetches and resumes from its offset
 (`URL_REFRESHED`). 401 and 403 are read as expiry and trigger a refresh *before* the retry ladder sees
 them. Re-fetches are bounded per run, so an endlessly-rejecting server fails rather than loops.
 
@@ -156,9 +156,10 @@ adb logcat -s DlService          # replies and events land here, tagged [debug]
 
 | Use case | Action | API |
 |---|---|---|
-| Driving blocks start, pauses a transfer, blocks install | `SET_DRIVING --es state MOVING` | `setDrivingState` |
+| Driving blocks start, pauses a download, blocks install | `SET_DRIVING --es state DRIVING` | `setDrivingState` |
 | Battery threshold and resume margin | `SET_BATTERY --ei level 15 --ez charging false` | `setBattery` |
-| Network class; metered hotspots always refused | `SET_NETWORK --es class CELLULAR` | `setNetworkClass` |
+| Whole network situation in one control | `SET_NETWORK_TYPE --es type CELLULAR_ENABLED` | `setNetworkType` |
+| Network class alone; metered hotspots always refused | `SET_NETWORK --es class CELLULAR` | `setNetworkClass` |
 | Cellular without a subscription | `SET_CELLULAR_SUBSCRIBED --ez subscribed false` | `setCellularSubscribed` |
 | Storage below size plus margin | `SET_FREE_SPACE --ei mb 100` | `setFreeSpaceMb` |
 | Back to the real vehicle signals | `CLEAR_SIGNAL_OVERRIDES` | `clearSignalOverrides` |
@@ -170,11 +171,11 @@ adb logcat -s DlService          # replies and events land here, tagged [debug]
 | Inject the artifact to install | `SET_ARTIFACT --es pkg com.x --el code 42 [--el size N] [--es digest <hex>]` | `setArtifact` |
 | Prove the up-to-date short-circuit | `SET_ARTIFACT` with the installed `code` | — |
 | Back to the real catalogue | `CLEAR_ARTIFACT` | `clearArtifact` |
-| Transparent mid-transfer refresh | `EXPIRE_URL_NOW` | `expireUrlNow` |
+| Transparent mid-download refresh | `EXPIRE_URL_NOW` | `expireUrlNow` |
 | Exhaust the refresh bound | `FAIL_URL_FETCH --ei times 4` | `failUrlFetch` |
-| Shorten the TTL so expiry lands mid-transfer | `SET_URL_TTL --ei seconds 30` | `setUrlTtlSeconds` |
+| Shorten the TTL so expiry lands mid-download | `SET_URL_TTL --ei seconds 30` | `setUrlTtlSeconds` |
 
-### Transfer
+### Download
 
 | Use case | Action | API |
 |---|---|---|
@@ -195,9 +196,9 @@ adb logcat -s DlService          # replies and events land here, tagged [debug]
 
 | Use case | Action | API |
 |---|---|---|
-| Install a local APK now, skipping the transfer | `INSTALL_NOW --es path /data/local/tmp/app.apk` | `installNow` |
+| Install a local APK now, skipping the download | `INSTALL_NOW --es path /data/local/tmp/app.apk` | `installNow` |
 | Force an install failure | `FORCE_INSTALL_FAILURE --ei code 4` | `forceInstallFailure` |
-| Prove install is driving-gated | `SET_DRIVING --es state MOVING` then `INSTALL_NOW` | — |
+| Prove install is driving-gated | `SET_DRIVING --es state DRIVING` then `INSTALL_NOW` | — |
 
 ### Install — `APK_OVERRIDE`
 
@@ -260,7 +261,7 @@ keeps its offset across pauses within the process.
 ## Decisions
 
 - **Driving blocks both download and install** (2026-10-12). The download gate keeps the driving rule as its
-  first check and pauses a running transfer when the vehicle leaves PARKED. The install phase applies the same
+  first check and pauses a running download when the vehicle leaves PARKED. The install phase applies the same
   rule. This supersedes the "downloads are not tied to vehicle state" assumption in
   `vehicle-updater-service-flow.html`.
 - **Cellular is a Settings choice, never a prompt** (2026-10-12). The "Wi-Fi or cellular" option is shown
@@ -270,7 +271,12 @@ keeps its offset across pauses within the process.
 
 ## Deferred
 
-The real `DownloadEngine`, retries, integrity, storage rule and failure notifications are the next phase
-(requirements section 12). See [docs/download-engine-comparison.md](docs/download-engine-comparison.md)
-for Android `DownloadManager` versus our own transfer as that engine. Unit tests are not written yet; `PolicyEvaluator`, `NetworkClassifier`,
-`DrivingStateMapper` and `Scheduler.delayToNext` are pure and ready for them.
+A platform helper service for privileged partition writes — the production answer to the override install
+path. Uninstall, downgrade and rollback. Split APKs and APEX. More than one artifact per run.
+
+Unit tests are not written yet; `PolicyEvaluator`, `NetworkClassifier`, `DrivingStateMapper` and
+`Scheduler.delayToNext` are pure and ready for them.
+
+The download engine itself has never run against a real server — no backend exists yet, so resume,
+`If-Range` and the retry ladder are written but untested over HTTP. See
+[docs/design.md](docs/design.md#13-not-proven-and-open).

@@ -15,7 +15,7 @@ import java.io.IOException
  * Wraps the real engine so a test can inject the failures the retry ladder and the integrity checks are
  * supposed to survive. Debug builds only.
  *
- * When a local APK is set it short-circuits the transfer entirely: the file is copied into place and the
+ * When a local APK is set it short-circuits the download entirely: the file is copied into place and the
  * run proceeds to verification and install. That is what makes the install paths testable without a
  * backend.
  */
@@ -48,7 +48,7 @@ class DebugDownloadEngine(
 
     override suspend fun discard() = delegate.discard()
 
-    /** Stands in for a transfer so install can be driven from an APK already on the device. */
+    /** Stands in for a download so install can be driven from an APK already on the device. */
     private suspend fun copyLocal(local: File, onProgress: (Long, Long?) -> Unit): DownloadResult {
         request.target.parentFile?.mkdirs()
         val total = local.length()
@@ -75,7 +75,7 @@ class DebugDownloadEngine(
         return DownloadResult.Success
     }
 
-    /** Corruption and truncation after a successful transfer, so [IntegrityVerifier] is what rejects it. */
+    /** Corruption and truncation after a successful download, so [IntegrityVerifier] is what rejects it. */
     private fun damageIfAsked() {
         val file = request.target
         if (DebugState.corruptNextDownload && file.exists()) {

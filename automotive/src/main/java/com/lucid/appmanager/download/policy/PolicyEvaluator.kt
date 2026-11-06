@@ -55,7 +55,8 @@ class DefaultPolicyEvaluator(
     }
 
     private fun driving(s: DeviceState): Blocked? =
-        if (s.driving == DrivingState.PARKED) null else Blocked(BlockReason.DRIVING, "driving state ${s.driving}")
+        if (s.driving in PERMITTED_DRIVING) null
+        else Blocked(BlockReason.DRIVING, "driving state ${s.driving}")
 
     private fun battery(s: DeviceState, c: Config, previousBlock: BlockReason?): Blocked? {
         if (s.battery.charging) return null
@@ -91,5 +92,23 @@ class DefaultPolicyEvaluator(
 
     private companion object {
         const val MB = 1024L * 1024
+
+        /**
+         * Driving states that permit a download and an install.
+         *
+         * `DRIVING` blocks for the obvious reason. `UNKNOWN` blocks because it means the signal could not
+         * be read, and a missing reading must never be treated as a stationary vehicle.
+         *
+         * `STOPPED` — stationary but in gear — is permitted by decision on 2026-11-05. It is the one entry
+         * here that is not inherently safe: the vehicle can move again without warning. The mid-run watcher
+         * covers a download, which pauses as soon as the state becomes `DRIVING`, but an install already
+         * committed has no such check. Narrow this set to drop `STOPPED` if that turns out to matter.
+         */
+        val PERMITTED_DRIVING = setOf(
+            DrivingState.PARKED,
+            DrivingState.ACCESSORY,
+            DrivingState.STOPPED,
+            DrivingState.TURNED_OFF,
+        )
     }
 }

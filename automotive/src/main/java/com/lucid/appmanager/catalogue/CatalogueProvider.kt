@@ -7,7 +7,7 @@ import kotlin.time.Duration.Companion.minutes
  * Source of the apps offered for download (FR-28).
  *
  * Replace [StubCatalogueProvider] with the backend-backed one. The contract here is our proposal and has
- * not been agreed with a backend (requirements A20); [ArtifactResolver] and [UrlSession] are the blast
+ * not been agreed with a backend (requirements A20); [ArtifactChecker] and [UrlSession] are the blast
  * radius if the real one differs.
  */
 interface CatalogueProvider {
@@ -15,10 +15,10 @@ interface CatalogueProvider {
 }
 
 /**
- * Mints a short-lived download URL for an artifact (FR-30).
+ * Fetches a short-lived download URL for an artifact (FR-30).
  *
  * Separate from [CatalogueProvider] on purpose: an artifact is cached across a long wait, a URL must not
- * be. Called immediately before the transfer starts and never earlier.
+ * be. Called immediately before the download starts and never earlier.
  */
 interface ArtifactUrlProvider {
     suspend fun downloadUrl(artifactId: String): SignedUrl

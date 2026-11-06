@@ -2,7 +2,7 @@ package com.lucid.appmanager.install
 
 import android.content.Context
 import com.lucid.appmanager.catalogue.Artifact
-import com.lucid.appmanager.catalogue.ArtifactResolver
+import com.lucid.appmanager.catalogue.ArtifactChecker
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -34,7 +34,7 @@ sealed interface OverrideCheck {
 class OverrideStagingInstaller(
     private val context: Context,
     private val store: PendingOverrideStore,
-    private val resolver: ArtifactResolver,
+    private val checker: ArtifactChecker,
     /** Partition directory the printed adb sequence targets (C7). */
     private val targetPartitionDir: String = DEFAULT_PARTITION_DIR,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -79,7 +79,7 @@ class OverrideStagingInstaller(
      */
     suspend fun checkApplied(): OverrideCheck {
         val pending = store.load() ?: return OverrideCheck.NoneStaged
-        val installed = resolver.installedVersionCode(pending.packageName)
+        val installed = checker.installedVersionCode(pending.packageName)
 
         if (installed != null && installed >= pending.targetVersionCode) {
             store.clear()

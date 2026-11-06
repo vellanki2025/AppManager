@@ -24,7 +24,7 @@ enum class InstallMode {
 }
 
 sealed interface InstallOutcome {
-    /** The package manager reports it installed. [com.lucid.appmanager.catalogue.ArtifactResolver] confirms. */
+    /** The package manager reports it installed. [com.lucid.appmanager.catalogue.ArtifactChecker] confirms. */
     data object Installed : InstallOutcome
 
     /** APK_OVERRIDE: staged and recorded, waiting for the adb apply and the next reboot. */

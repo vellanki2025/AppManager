@@ -10,7 +10,7 @@ import com.lucid.appmanager.download.config.ConfigRepository
 import com.lucid.appmanager.download.config.DataStoreConfigRepository
 import com.lucid.appmanager.download.config.DataStoreFeatureFlags
 import com.lucid.appmanager.download.config.FeatureFlags
-import com.lucid.appmanager.catalogue.ArtifactResolver
+import com.lucid.appmanager.catalogue.ArtifactChecker
 import com.lucid.appmanager.catalogue.ArtifactUrlProvider
 import com.lucid.appmanager.catalogue.CatalogueProvider
 import com.lucid.appmanager.catalogue.StubArtifactUrlProvider
@@ -72,7 +72,7 @@ class DownloadComponent private constructor(
     val scheduler: Scheduler,
     val coordinator: RunCoordinator,
     val catalogue: CatalogueProvider,
-    val resolver: ArtifactResolver,
+    val checker: ArtifactChecker,
     val overrides: OverrideStagingInstaller,
     private val waitingWatcher: WaitingWatcher,
 ) {
@@ -124,7 +124,7 @@ class DownloadComponent private constructor(
         val featureDefaultInstallMode: InstallMode = InstallMode.PACKAGE_MANAGER,
         val catalogue: CatalogueProvider = StubCatalogueProvider(),
         val urls: ArtifactUrlProvider = StubArtifactUrlProvider(),
-        /** Where the transfer writes. Also the volume the storage rule measures. */
+        /** Where the download writes. Also the volume the storage rule measures. */
         val downloadDir: File = File(context.cacheDir, "download"),
         val storage: StorageMonitor = FileStorageMonitor(downloadDir),
         /**
@@ -134,7 +134,7 @@ class DownloadComponent private constructor(
          */
         val engineFactory: DownloadEngineFactory = DownloadEngineFactory { FakeDownloadEngine() },
         /** Override to decorate the installers, which is how the debug build forces install failures. */
-        val installerFactory: ((InstallMode, Context, PendingOverrideStore, ArtifactResolver, OverrideStagingInstaller) -> Installer)? = null,
+        val installerFactory: ((InstallMode, Context, PendingOverrideStore, ArtifactChecker, OverrideStagingInstaller) -> Installer)? = null,
     )
 
     companion object {
@@ -153,12 +153,12 @@ class DownloadComponent private constructor(
             val policy = DefaultPolicyEvaluator(logAllFailures = deps.debug) { Log.d(Logger.TAG, it) }
             val scheduler = Scheduler(WorkManager.getInstance(app), deps.config, flags, deps.clock)
 
-            val resolver = ArtifactResolver(deps.catalogue, app.packageManager)
+            val checker = ArtifactChecker(deps.catalogue, app.packageManager)
             val verifier = IntegrityVerifier(app.packageManager)
             val overrideStore = PendingOverrideStore(app)
-            val overrides = OverrideStagingInstaller(app, overrideStore, resolver)
+            val overrides = OverrideStagingInstaller(app, overrideStore, checker)
             val installerFor: (InstallMode) -> Installer = { mode ->
-                deps.installerFactory?.invoke(mode, app, overrideStore, resolver, overrides)
+                deps.installerFactory?.invoke(mode, app, overrideStore, checker, overrides)
                     ?: when (mode) {
                         InstallMode.PACKAGE_MANAGER -> PackageManagerInstaller(app)
                         InstallMode.APK_OVERRIDE -> overrides
@@ -167,12 +167,12 @@ class DownloadComponent private constructor(
 
             val coordinator = RunCoordinator(
                 store, deps.config, flags, monitor, policy, deps.engineFactory, scheduler, events, notifications,
-                deps.clock, resolver, deps.urls, verifier, installerFor, deps.downloadDir,
+                deps.clock, checker, deps.urls, verifier, installerFor, deps.downloadDir,
             )
             val watcher = WaitingWatcher(store, deps.config, monitor, policy, scheduler, events)
             return DownloadComponent(
                 app, scope, deps.config, flags, store, monitor, events, notifications, scheduler, coordinator,
-                deps.catalogue, resolver, overrides, watcher,
+                deps.catalogue, checker, overrides, watcher,
             ).also { instance = it }
         }
     }

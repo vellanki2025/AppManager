@@ -5,7 +5,35 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
-enum class DrivingState { PARKED, IDLING, MOVING, UNKNOWN }
+/**
+ * What the vehicle is doing, from ignition position plus gear and speed.
+ *
+ * `UNKNOWN` is not a vehicle state: it is "the signal could not be read", which happens before the first
+ * reading and whenever the signal library is unavailable. It blocks, so an unreadable signal never permits
+ * an install.
+ */
+enum class DrivingState {
+    /** Ignition on, gear in Park, stationary. */
+    PARKED,
+
+    /** Moving. */
+    DRIVING,
+
+    /** Ignition in accessory: the head unit is powered, the engine is not. */
+    ACCESSORY,
+
+    /** Ignition on, stationary, but in gear - a traffic light. Can move again without warning. */
+    STOPPED,
+
+    /** Ignition off. */
+    TURNED_OFF,
+
+    /** The signal could not be read. */
+    UNKNOWN,
+}
+
+/** Ignition position reported by the vehicle. */
+enum class Ignition { OFF, ACCESSORY, ON }
 enum class NetworkTransport { NONE, WIFI, CELLULAR, ETHERNET, OTHER }
 enum class NetworkClass { NONE, UNMETERED_WIFI, METERED_WIFI, CELLULAR, ETHERNET, OTHER }
 enum class NetworkMode { WIFI_ONLY, WIFI_OR_CELLULAR }
@@ -39,7 +67,7 @@ data class Config(
     val resumeStabilityWindow: Duration = 10.seconds,
     /** Persisted safety-net recheck while waiting. */
     val recheckInterval: Duration = 15.minutes,
-    /** Headroom required above the artifact size before a transfer starts (C3). */
+    /** Headroom required above the artifact size before a download starts (C3). */
     val storageMarginPercent: Int = 10,
 )
 
@@ -52,7 +80,7 @@ sealed interface PolicyDecision {
 data class RunState(
     val runId: String = "",
     val phase: RunPhase = RunPhase.IDLE,
-    /** Artifact this run is working on, so a resumed run does not re-resolve the catalogue. */
+    /** Artifact this run is working on, so a resumed run does not re-check the catalogue. */
     val artifactId: String? = null,
     /** Set once the APK is downloaded and verified. Its presence is what lets a resume skip to install. */
     val apkPath: String? = null,

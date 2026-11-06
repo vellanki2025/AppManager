@@ -53,6 +53,13 @@
 <body>
 <main>
   <h1>App update check flow</h1>
+  <div style="border-left:4px solid #b4531a;background:#fdeee3;color:#3a2615;padding:12px 16px;border-radius:0 8px 8px 0;margin:0 0 18px;font-size:14px;line-height:1.5">
+    <b>Partly superseded.</b> This is the <b>cloud-side</b> view: VIN lookup, the Versions store and the event history. It predates the v4 contract and still describes a manifest that carries the download URL. The Versions data model and the audit history are unaffected; the update-check call itself is not.
+    The on-vehicle download and install pipeline as built is in
+    <a href="docs/event-flow.html" style="color:#b4531a">docs/event-flow.html</a>,
+    and <a href="docs/design.md" style="color:#b4531a">docs/design.md</a>.
+  </div>
+
   <p class="sub">Vehicle, Cloud API, and the Versions, Regions and Garage components, including VIN lookup and event history.</p>
 
   <h2>1. Update check, with event logging</h2>

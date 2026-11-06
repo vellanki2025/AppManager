@@ -48,7 +48,7 @@ class AppManagerDownloadService : Service() {
                     versionName = a.versionName,
                     versionCode = a.versionCode,
                     sizeBytes = a.sizeBytes,
-                    installedVersionCode = component.resolver.installedVersionCode(a.packageName) ?: -1L,
+                    installedVersionCode = component.checker.installedVersionCode(a.packageName) ?: -1L,
                 )
             }
         }
