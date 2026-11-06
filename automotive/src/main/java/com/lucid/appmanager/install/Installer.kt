@@ -1,6 +1,6 @@
 package com.lucid.appmanager.install
 
-import com.lucid.appmanager.catalogue.Artifact
+import com.lucid.appmanager.catalogue.Manifest
 import java.io.File
 
 /** Which install path the service uses (FR-52). Chosen by feature flag, read at install time. */
@@ -24,7 +24,7 @@ enum class InstallMode {
 }
 
 sealed interface InstallOutcome {
-    /** The package manager reports it installed. [com.lucid.appmanager.catalogue.ArtifactChecker] confirms. */
+    /** The package manager reports it installed. [com.lucid.appmanager.catalogue.ManifestChecker] confirms. */
     data object Installed : InstallOutcome
 
     /** APK_OVERRIDE: staged and recorded, waiting for the adb apply and the next reboot. */
@@ -45,5 +45,5 @@ interface Installer {
     val mode: InstallMode
 
     /** @param apk a file that has already passed [com.lucid.appmanager.download.verify.IntegrityVerifier]. */
-    suspend fun install(artifact: Artifact, apk: File): InstallOutcome
+    suspend fun install(manifest: Manifest, apk: File): InstallOutcome
 }

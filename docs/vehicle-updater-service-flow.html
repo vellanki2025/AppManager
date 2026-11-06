@@ -64,9 +64,9 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
   <h1>Vehicle AppManager</h1>
   <div style="border-left:4px solid #2457c5;background:#e8effc;color:#16233d;padding:12px 16px;border-radius:0 8px 8px 0;margin:0 0 18px;font-size:14px;line-height:1.5">
     The flows below match the service as built. Step through the same pipeline one event at a time in
-    <a href="docs/event-flow.html" style="color:#2457c5">docs/event-flow.html</a>;
+    <a href="event-flow.html" style="color:#2457c5">docs/event-flow.html</a>;
     the contracts, thresholds and decisions behind it are in
-    <a href="docs/design.md" style="color:#2457c5">docs/design.md</a>.
+    <a href="design.md" style="color:#2457c5">docs/design.md</a>.
   </div>
 
   <p class="sub">Sequence diagrams, rules, in-app experience and lifecycle events for the on-vehicle AppManager service. Two cases: the nightly 02:00 run and Update now. Vehicle side only; the Cloud API appears just as the boundary.</p>
@@ -103,8 +103,8 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
     <h3 style="margin-top:20px">Hold reasons</h3>
     <p>When a rule fails, the run persists <code>WAITING</code> with one <code>BlockReason</code> and rechecks 15 minutes later: <code>DRIVING</code>, <code>BATTERY</code>, <code>NETWORK</code>, <code>STORAGE</code>, or <code>SYSTEM_STOP</code> when WorkManager stops the worker. An unreachable catalogue is reported as <code>NETWORK</code> with the cause in the message. The reason goes to the log and the AIDL status; it never reaches a row in the UI, which shows four fields and a fixed three-word state.</p>
     <h3 style="margin-top:20px">Per-app install rules (not built)</h3>
-    <p class="cap">An earlier design had the Release Manager set per-app install rules, delivered inside a signed manifest and evaluated at install time. That is <b>not implemented</b>, and the current cloud contract has no place for it: the catalogue returns an <code>Artifact</code> carrying packageName, versionCode, size and digest, and nothing else. The gate is the four rules above, the same for every app.</p>
-    <p class="cap">It is recorded here because the capability may still be wanted. Adding it would mean extending the artifact contract and giving the install gate a per-artifact rule set, on top of the baseline, which would still not be loosenable: driving and battery would continue to apply whatever a rule said.</p>
+    <p class="cap">An earlier design had the Release Manager set per-app install rules, delivered inside a signed manifest and evaluated at install time. That is <b>not implemented</b>, and the current cloud contract has no place for it: the catalogue returns an <code>Manifest</code> carrying packageName, versionCode, size and digest, and nothing else. The gate is the four rules above, the same for every app.</p>
+    <p class="cap">It is recorded here because the capability may still be wanted. Adding it would mean extending the manifest contract and giving the install gate a per-manifest rule set, on top of the baseline, which would still not be loosenable: driving and battery would continue to apply whatever a rule said.</p>
   </section>
 
   <section class="panel" id="p-events">
@@ -121,7 +121,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
       <li>Ignition position must come from the vehicle signal library alongside gear and speed. Two driving states cannot be derived without it: a car with the ignition off reports gear Park and zero speed exactly like one with the ignition on, so TURNED_OFF and ACCESSORY are otherwise indistinguishable from PARKED. <code>RawDrivingSignals</code> has the field; the library is not connected yet.</li>
       <li>STOPPED, stationary but in gear, is permitted by decision (2026-11-05). It is the one permitted state that is not inherently safe: the vehicle can move again without warning. A download is covered, since the watcher pauses it as soon as the state becomes DRIVING, but a commit already started has no equivalent check.</li>
       <li>Decided 2026-10-12: driving blocks both download and install. A download in progress pauses when driving starts, keeps its partial file and offset, and resumes after 10 continuous seconds of a permitted state. Neither half is tied to a time window any more: one run does both, at 02:00 or on demand.</li>
-      <li>The cloud contract is still our proposal. <code>Artifact</code>, <code>SignedUrl</code> and the two-call split have no backend sign-off, and the download engine has never run against a real server.</li>
+      <li>The cloud contract is still our proposal. <code>Manifest</code>, <code>SignedUrl</code> and the two-call split have no backend sign-off, and the download engine has never run against a real server.</li>
       <li>Privileged install is unverified on a head unit. Only INSTALL_NEEDS_USER_ACTION has been seen on a bench, which is the correct unprivileged answer; the silent path needs the privapp allowlist for <code>com.lucid.appmanager</code> in the system image.</li>
       <li>When space is short, an app that is already downloaded is installed first (if its rules allow) and its APK deleted. An APK that has not been installed is never deleted to make space, except when a newer version of the same app replaces it.</li>
       <li>Vehicle state is the only gate for installs, apart from the manifest rules: driving is a strict no, parked is allowed. The service never asks apps what they are doing, so Navigation or music can stop when an update installs while parked. Tapping Update now counts as the user's consent, and the message appears when the install starts, with no countdown.</li>
@@ -182,7 +182,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
      parts:['os','svc','db','pm','sched'],
      msgs:[
       {f:'os',t:'svc',x:'BOOT_COMPLETED'},
-      {f:'svc',t:'db',x:'Load RunState: phase, artifactId, apkPath, waitReason, progress'},
+      {f:'svc',t:'db',x:'Load RunState: phase, manifestId, apkPath, waitReason, progress'},
       {f:'db',t:'svc',x:'Saved state, possibly RUNNING, WAITING or INSTALLING',r:1},
       {f:'svc',t:'svc',x:'phase RUNNING: emit STATE_RESTORED and carry on from the saved progress'},
       {f:'svc',t:'pm',x:'getPackageInfo(packageName): installed versionCode'},
@@ -199,17 +199,17 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
       {f:'sched',t:'svc',x:'02:00 daily_trigger fires, enqueues download_run (KEEP)'},
       {f:'svc',t:'pol',x:'Gate: driving, battery, network'},
       {f:'pol',t:'svc',x:'Allowed',r:1},
-      {f:'svc',t:'cloud',x:'1. Artifact check: what does the catalogue offer?'},
-      {f:'cloud',t:'svc',x:'Artifact list: packageName, versionCode, size, digest. No URL.',r:1},
+      {f:'svc',t:'cloud',x:'1. Manifest check: what does the catalogue offer?'},
+      {f:'cloud',t:'svc',x:'Manifest list: packageName, versionCode, size, digest. No URL.',r:1},
       {f:'svc',t:'svc',x:'Compare versionCode, never versionName. Installed >= offered ends as UP_TO_DATE.'},
-      {f:'svc',t:'pol',x:'Storage gate: artifact size + 10% must fit'},
+      {f:'svc',t:'pol',x:'Storage gate: manifest size + 10% must fit'},
       {f:'pol',t:'svc',x:'Allowed',r:1},
-      {f:'svc',t:'cloud',x:'2. Fetch APK URL for this artifact'},
+      {f:'svc',t:'cloud',x:'2. Fetch APK URL for this manifest'},
       {f:'cloud',t:'svc',x:'Signed URL, expires in 30 minutes',r:1},
       {f:'svc',t:'dl',x:'3. Download: Range resume into .part'},
       {f:'dl',t:'svc',x:'Atomic rename on success',r:1},
       {f:'svc',t:'vfy',x:'4. Verify: length, APK parse, SHA-256, signing certificate'},
-      {f:'vfy',t:'svc',x:'Ok. apkPath and artifactId persisted together.',r:1},
+      {f:'vfy',t:'svc',x:'Ok. apkPath and manifestId persisted together.',r:1},
       {f:'svc',t:'pol',x:'Install gate: fresh snapshot, driving and battery only'},
       {f:'pol',t:'svc',x:'Allowed',r:1},
       {f:'svc',t:'pi',x:'5. Install'},
@@ -258,14 +258,14 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
      msgs:[
       {f:'svc',t:'pol',x:'Install gate, fresh snapshot'},
       {f:'pol',t:'svc',x:'Blocked: DRIVING',r:1},
-      {f:'svc',t:'db',x:'phase WAITING, apkPath kept, artifactId kept'},
+      {f:'svc',t:'db',x:'phase WAITING, apkPath kept, manifestId kept'},
       {note:'The verified APK stays on disk. Nothing is deleted.'},
-      {f:'svc',t:'cloud',x:'Recheck 15 min later: artifact check runs again'},
-      {f:'cloud',t:'svc',x:'Same artifact still offered',r:1},
-      {f:'svc',t:'db',x:'apkPath exists AND artifactId matches?'},
+      {f:'svc',t:'cloud',x:'Recheck 15 min later: manifest check runs again'},
+      {f:'cloud',t:'svc',x:'Same manifest still offered',r:1},
+      {f:'svc',t:'db',x:'apkPath exists AND manifestId matches?'},
       {f:'db',t:'svc',x:'Yes: STATE_RESTORED',r:1},
       {f:'svc',t:'pi',x:'Skip the storage gate, the URL, the download and verification. Install.'},
-      {note:'If the catalogue has moved to a newer version, artifactId no longer matches: the staged APK is deleted and RESTARTED_FROM_ZERO is emitted. Reusing it would install the wrong version.',a:'svc',b:'pi'}
+      {note:'If the catalogue has moved to a newer version, manifestId no longer matches: the staged APK is deleted and RESTARTED_FROM_ZERO is emitted. Reusing it would install the wrong version.',a:'svc',b:'pi'}
      ]},
 
     {tab:'6 Verification fails',title:'The bytes arrived, but they are wrong',
@@ -291,7 +291,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
      msgs:[
       {f:'dl',t:'cloud',x:'GET the APK, Range from the offset'},
       {f:'dl',t:'dl',x:'Under 60 seconds left on the clock: re-fetch before reading further'},
-      {f:'dl',t:'cloud',x:'Fetch a fresh signed URL for the same artifactId'},
+      {f:'dl',t:'cloud',x:'Fetch a fresh signed URL for the same manifestId'},
       {f:'cloud',t:'dl',x:'New URL, new 30 minute expiry. URL_REFRESHED.',r:1},
       {f:'dl',t:'cloud',x:'Resume from the same byte offset'},
       {note:'A 401 or 403 is read as expiry rather than an authorization failure: against a 30 minute signature that is overwhelmingly what it means. The engine re-fetches and retries.'},
@@ -328,7 +328,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
       {f:'svc',t:'hmi',x:'onStatusChanged: state and the three-word status',r:1},
       {note:'The HMI shows a row with four fields only: icon, title, version, state. A failure reason never reaches a row.',a:'hmi',b:'pi'},
       {f:'hmi',t:'svc',x:'Parked. The run proceeds.'},
-      {f:'svc',t:'cloud',x:'Artifact check, then fetch the APK URL'},
+      {f:'svc',t:'cloud',x:'Manifest check, then fetch the APK URL'},
       {f:'svc',t:'dl',x:'Download, then verify'},
       {f:'svc',t:'pi',x:'Install once the install gate opens'},
       {f:'svc',t:'hmi',x:'onEvent: one formatted line per service event',r:1},
@@ -358,19 +358,19 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
       {note:'A running commit is never interrupted. It takes seconds and finishes safely.',a:'veh',b:'hmi'}
      ]},
 
-    {tab:'11 Several apps in one run',title:'Multiple artifacts (designed, not yet built)',
-     blurb:'FR-58, approved and specified but not implemented: the service still handles one artifact per run. Step through it in docs/event-flow.html with the Artifacts control.',
+    {tab:'11 Several apps in one run',title:'Multiple manifests (designed, not yet built)',
+     blurb:'FR-58, approved and specified but not implemented: the service still handles one manifest per run. Step through it in docs/event-flow.html with the Manifests control.',
      parts:['svc','cloud','pol','dl','pi'],
      msgs:[
-      {f:'svc',t:'cloud',x:'Artifact check, ONCE for the whole run'},
+      {f:'svc',t:'cloud',x:'Manifest check, ONCE for the whole run'},
       {f:'cloud',t:'svc',x:'Everything offered; anything already current is reported UP_TO_DATE here',r:1},
-      {note:'The catalogue is not asked again. Stages 2 to 5 then repeat per artifact, serially.'},
-      {f:'svc',t:'pol',x:'Per artifact: storage gate, then its own URL'},
-      {f:'svc',t:'dl',x:'Download and verify this artifact'},
-      {f:'svc',t:'pol',x:'Install gate, per artifact'},
-      {f:'svc',t:'pi',x:'Install, then move to the next artifact'},
-      {note:'URLs are fetched per artifact, immediately before its own download. Fetching them all up front would start three 30 minute clocks at once and the third would expire before its turn.'},
-      {note:'A failed artifact is recorded and the run carries on: one bad APK on the server does not cost the other apps their update. A policy block is different, and suspends the whole run with the queue persisted.'},
+      {note:'The catalogue is not asked again. Stages 2 to 5 then repeat per manifest, serially.'},
+      {f:'svc',t:'pol',x:'Per manifest: storage gate, then its own URL'},
+      {f:'svc',t:'dl',x:'Download and verify this manifest'},
+      {f:'svc',t:'pol',x:'Install gate, per manifest'},
+      {f:'svc',t:'pi',x:'Install, then move to the next manifest'},
+      {note:'URLs are fetched per manifest, immediately before its own download. Fetching them all up front would start three 30 minute clocks at once and the third would expire before its turn.'},
+      {note:'A failed manifest is recorded and the run carries on: one bad APK on the server does not cost the other apps their update. A policy block is different, and suspends the whole run with the queue persisted.'},
       {f:'svc',t:'svc',x:'DOWNLOAD_COMPLETE once, with a summary: 2 of 3 installed'}
      ]},
 
@@ -378,7 +378,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
      blurb:'Transient problems retry with backoff. Problems that will not fix themselves stop, so the run does not loop against a broken server.',
      parts:['svc','cloud','dl','sched','db'],
      msgs:[
-      {f:'svc',t:'cloud',x:'Artifact check'},
+      {f:'svc',t:'cloud',x:'Manifest check'},
       {f:'cloud',t:'svc',x:'Timeout, DNS failure or 5xx',r:1},
       {f:'svc',t:'db',x:'Treated as a NETWORK block with the cause, not an uncaught exception'},
       {f:'svc',t:'sched',x:'Wait and recheck in 15 minutes'},
@@ -386,11 +386,17 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
       {f:'dl',t:'svc',x:'HTTP 5xx or 429 during the download',r:1},
       {f:'svc',t:'dl',x:'Retry up to 5 attempts, backing off 30 s to 15 min, resuming at the saved byte'},
       {f:'dl',t:'svc',x:'HTTP 404',r:1},
-      {f:'svc',t:'db',x:'Fatal. No amount of retrying fixes an artifact that is not there.'},
+      {f:'svc',t:'db',x:'Fatal. No amount of retrying fixes an manifest that is not there.'},
       {note:'Verification failures retry the whole download once. Two independent failures mean the source is wrong, not the wire, so the run stops. A system stop from WorkManager keeps progress and rechecks immediately.',a:'svc',b:'db'}
      ]}
   ];
 
+  var GROUPS=[
+    {label:'Normal flows',idx:[0,1,8]},
+    {label:'Gates and waiting',idx:[2,3,4,9]},
+    {label:'Integrity and the URL',idx:[5,6]},
+    {label:'Install, scale and failure',idx:[7,10,11]}
+  ];
   var AIU={title:'Update now when parked: the install message',
     blurb:'Vehicle state is the only gate. The service does not talk to individual apps. When parked, it installs and the HMI shows a message.',
     parts:['hmi','svc','veh','pi'],colW:230,
@@ -488,7 +494,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
 
   /* ---------- App in use table ---------- */
   table('drvtbl',['Stage when driving starts','Nightly 02:00 run','Update now'],[
-    ['Artifact check','Not affected. It is one small request.','Not affected.'],
+    ['Manifest check','Not affected. It is one small request.','Not affected.'],
     ['Downloading','The watcher cancels the engine. PAUSED_DRIVING, .part and offset kept. Resumes after Park for 10 seconds.','Paused the same way. The row shows the paused state.'],
     ['Verifying','Finishes (local file work, seconds), then the install gate decides.','Same.'],
     ['Verified, waiting to install','Blocked at the install gate. apkPath kept, so the recheck installs without downloading again.','Same, and it installs as soon as the gear has been in Park for 10 seconds.'],
@@ -514,7 +520,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
     ['Resuming after a block','The gate must stay open for 10 continuous seconds before the run proceeds, so a flapping signal re-blocks.','Same.'],
     ['Battery','At least 20%, or charging at any level. Resuming after a battery block needs 20 + 5 = 25%.','Same.'],
     ['Network','Validated unmetered WiFi, or the vehicle cellular when the Settings option is on and the vehicle has a connectivity subscription. Metered hotspots always refuse; Bluetooth PAN is not a supported transport.','Same.'],
-    ['Storage','Free space must cover the artifact plus 10%. Unknown free space never blocks.','Same.'],
+    ['Storage','Free space must cover the manifest plus 10%. Unknown free space never blocks.','Same.'],
     ['Install gate','Driving and battery only. Network and storage are deliberately skipped: the APK is already on local storage and the install moves no bytes.','Same.'],
     ['Per-app install rules','Not built. The gate is the four rules above; there is no per-app rule from the cloud.','Same.'],
     ['Profile','Not tied to a profile. The service runs in the system user and updates the whole vehicle.','Binding needs BIND_DOWNLOAD_SERVICE, a signature|privileged permission.'],
@@ -532,7 +538,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
     ['URL_FETCHED / URL_REFRESHED','A signed URL is minted or renewed','URL_REFRESH_EXHAUSTED past 3 per run'],
     ['DOWNLOAD_STARTED / RESUMED / DOWNLOAD_PROGRESS','The engine runs','Progress at most once a second'],
     ['PAUSED_DRIVING / _BATTERY / _NETWORK','The watcher sees a rule fail mid-download','The .part file survives'],
-    ['RESTARTED_FROM_ZERO','The server ignored Range, or the staged APK was for another artifact','Partial bytes are discarded'],
+    ['RESTARTED_FROM_ZERO','The server ignored Range, or the staged APK was for another manifest','Partial bytes are discarded'],
     ['VERIFY_FAILED','length, APK parse, SHA-256 or signer check fails','One retry, then DOWNLOAD_FAILED: verification failed twice'],
     ['INSTALL_STARTED / INSTALL_COMPLETE','A session is committed, and the device confirms the version moved','INSTALL_NEEDS_USER_ACTION means the app is not privileged'],
     ['OVERRIDE_STAGED / _APPLIED / _NOT_APPLIED','APK_OVERRIDE path','Decided by comparing BOOT_COUNT'],

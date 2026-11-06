@@ -6,12 +6,12 @@ import java.time.Instant
  * What to install (FR-28).
  *
  * Deliberately carries no download URL. The URL has a 30 minute TTL (A13) and this service routinely
- * waits hours for the policy gate to open, so a URL held alongside the artifact would almost always be
- * dead by the time it was used. [ArtifactUrlProvider] fetches one at download time instead.
+ * waits hours for the policy gate to open, so a URL held alongside the manifest would almost always be
+ * dead by the time it was used. [ApkUrlProvider] fetches one at download time instead.
  */
-data class Artifact(
+data class Manifest(
     /** Opaque server handle used to fetch a download URL. */
-    val artifactId: String,
+    val manifestId: String,
     val packageName: String,
     val title: String,
     val versionName: String,

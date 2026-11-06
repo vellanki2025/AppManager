@@ -1,7 +1,7 @@
 package com.lucid.appmanager
 
 import android.app.Application
-import com.lucid.appmanager.catalogue.StubArtifactUrlProvider
+import com.lucid.appmanager.catalogue.StubApkUrlProvider
 import com.lucid.appmanager.catalogue.StubCatalogueProvider
 import com.lucid.appmanager.download.DownloadComponent
 import com.lucid.appmanager.download.config.DataStoreConfigRepository
@@ -34,7 +34,7 @@ open class AppManagerApplication : Application() {
             battery = VehicleBatteryMonitor(),
             subscription = VehicleConnectivitySubscription(),
             catalogue = StubCatalogueProvider(),
-            urls = StubArtifactUrlProvider(),
+            urls = StubApkUrlProvider(),
             engineFactory = DownloadEngineFactory { HttpDownloadEngine(it) },
             debug = BuildConfig.DEBUG,
             featureDefaultEnabled = BuildConfig.DOWNLOAD_SERVICE_ENABLED,

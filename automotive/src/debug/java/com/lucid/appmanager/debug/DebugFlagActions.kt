@@ -1,6 +1,6 @@
 package com.lucid.appmanager.debug
 
-import com.lucid.appmanager.catalogue.Artifact
+import com.lucid.appmanager.catalogue.Manifest
 import com.lucid.appmanager.catalogue.Digest
 import com.lucid.appmanager.download.DownloadComponent
 import com.lucid.appmanager.download.model.BatteryState
@@ -171,7 +171,7 @@ object DebugFlagActions {
     /**
      * Force free space, in megabytes.
      *
-     * Use case: the storage rule blocks when space is below artifact size plus margin (FR-38).
+     * Use case: the storage rule blocks when space is below manifest size plus margin (FR-38).
      * Action `SET_FREE_SPACE --ei mb 100`.
      */
     fun setFreeSpaceMb(mb: Int?) {
@@ -190,15 +190,15 @@ object DebugFlagActions {
     // ---------------------------------------------------------------- 8.4 cloud and URL
 
     /**
-     * Inject the artifact the catalogue returns.
+     * Inject the manifest the catalogue returns.
      *
      * Use case: drive a specific version, size and digest without a backend. Setting `versionCode` to what
      * is already installed proves the up-to-date short-circuit (FR-29).
-     * Action `SET_ARTIFACT --es pkg com.x --ei code 42 [--es digest <hex>] [--el size <bytes>]`.
+     * Action `SET_MANIFEST --es pkg com.x --ei code 42 [--es digest <hex>] [--el size <bytes>]`.
      */
-    fun setArtifact(packageName: String, versionCode: Long, sizeBytes: Long = 0L, digestHex: String = "") {
-        DebugState.artifact = Artifact(
-            artifactId = "debug-$packageName-$versionCode",
+    fun setManifest(packageName: String, versionCode: Long, sizeBytes: Long = 0L, digestHex: String = "") {
+        DebugState.manifest = Manifest(
+            manifestId = "debug-$packageName-$versionCode",
             packageName = packageName,
             title = packageName.substringAfterLast('.'),
             versionName = "debug-$versionCode",
@@ -208,8 +208,8 @@ object DebugFlagActions {
         )
     }
 
-    /** Return to the real catalogue. Action `CLEAR_ARTIFACT`. */
-    fun clearArtifact() { DebugState.artifact = null }
+    /** Return to the real catalogue. Action `CLEAR_MANIFEST`. */
+    fun clearManifest() { DebugState.manifest = null }
 
     /**
      * Make the next fetched URL already expired.
@@ -323,8 +323,8 @@ object DebugFlagActions {
      * Action `STAGE_OVERRIDE --es path /data/local/tmp/app.apk`.
      */
     fun stageOverride(apk: File, packageName: String, versionCode: Long) = scope.launch {
-        val artifact = Artifact(
-            artifactId = "debug-stage",
+        val manifest = Manifest(
+            manifestId = "debug-stage",
             packageName = packageName,
             title = packageName.substringAfterLast('.'),
             versionName = "debug-$versionCode",
@@ -332,7 +332,7 @@ object DebugFlagActions {
             sizeBytes = apk.length(),
             digest = Digest.sha256(""),
         )
-        component.overrides.install(artifact, apk)
+        component.overrides.install(manifest, apk)
     }
 
     /**

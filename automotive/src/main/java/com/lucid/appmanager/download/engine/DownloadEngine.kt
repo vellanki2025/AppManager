@@ -1,6 +1,6 @@
 package com.lucid.appmanager.download.engine
 
-import com.lucid.appmanager.catalogue.Artifact
+import com.lucid.appmanager.catalogue.Manifest
 import kotlinx.coroutines.delay
 import java.io.File
 import kotlin.math.min
@@ -11,6 +11,12 @@ import kotlin.math.min
  * The URL and its refresh are injected at construction via [DownloadRequest] rather than threaded
  * through [download], which is what keeps this contract still.
  */
+/**
+ * Suffix for a transfer still in flight. Public because the coordinator sweeps leftovers by name and the
+ * two must agree: a .part the coordinator cannot recognise is a partial download it cannot clean up.
+ */
+const val PART_SUFFIX = ".part"
+
 interface DownloadEngine {
     /** Runs until done. Cancelling the calling coroutine means "pause". */
     suspend fun download(onProgress: (downloaded: Long, total: Long?) -> Unit): DownloadResult
@@ -32,7 +38,7 @@ sealed interface DownloadResult {
 
 /** Everything one run's engine needs. Built fresh per run, which is why engines come from a factory. */
 data class DownloadRequest(
-    val artifact: Artifact,
+    val manifest: Manifest,
     val urls: UrlSession,
     /** Final path. The engine streams to `<target>.part` and renames on success. */
     val target: File,

@@ -1,6 +1,6 @@
 package com.lucid.appmanager.download.engine
 
-import com.lucid.appmanager.catalogue.ArtifactUrlProvider
+import com.lucid.appmanager.catalogue.ApkUrlProvider
 import com.lucid.appmanager.catalogue.SignedUrl
 import java.time.Clock
 import java.util.concurrent.atomic.AtomicInteger
@@ -18,8 +18,8 @@ class UrlRefreshExhausted(val attempts: Int) : Exception("URL re-fetched $attemp
  * Not thread-safe beyond the attempt counter; one session belongs to one run.
  */
 class UrlSession(
-    private val provider: ArtifactUrlProvider,
-    private val artifactId: String,
+    private val provider: ApkUrlProvider,
+    private val manifestId: String,
     private val clock: Clock = Clock.systemUTC(),
     /** Bound on transparent re-fetches within a single run (C2). */
     private val maxRefreshes: Int = DEFAULT_MAX_REFRESHES,
@@ -33,7 +33,7 @@ class UrlSession(
     val refreshCount: Int get() = refreshes.get()
 
     /** First fetch. Call only once the policy gate has opened and the download is about to begin. */
-    suspend fun open(): SignedUrl = provider.downloadUrl(artifactId).also { current = it }
+    suspend fun open(): SignedUrl = provider.downloadUrl(manifestId).also { current = it }
 
     /** The URL in hand, fetching one if [open] has not run yet. */
     suspend fun current(): SignedUrl = current ?: open()
@@ -47,7 +47,7 @@ class UrlSession(
     suspend fun refresh(): SignedUrl {
         val attempt = refreshes.incrementAndGet()
         if (attempt > maxRefreshes) throw UrlRefreshExhausted(attempt - 1)
-        return provider.downloadUrl(artifactId).also {
+        return provider.downloadUrl(manifestId).also {
             current = it
             onRefreshed(it)
         }

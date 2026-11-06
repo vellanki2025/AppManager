@@ -67,7 +67,7 @@ data class Config(
     val resumeStabilityWindow: Duration = 10.seconds,
     /** Persisted safety-net recheck while waiting. */
     val recheckInterval: Duration = 15.minutes,
-    /** Headroom required above the artifact size before a download starts (C3). */
+    /** Headroom required above the manifest size before a download starts (C3). */
     val storageMarginPercent: Int = 10,
 )
 
@@ -80,8 +80,8 @@ sealed interface PolicyDecision {
 data class RunState(
     val runId: String = "",
     val phase: RunPhase = RunPhase.IDLE,
-    /** Artifact this run is working on, so a resumed run does not re-check the catalogue. */
-    val artifactId: String? = null,
+    /** Manifest this run is working on, so a resumed run does not re-check the catalogue. */
+    val manifestId: String? = null,
     /** Set once the APK is downloaded and verified. Its presence is what lets a resume skip to install. */
     val apkPath: String? = null,
     val waitReason: BlockReason? = null,

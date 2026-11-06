@@ -14,7 +14,7 @@ interface PolicyEvaluator {
     /**
      * Rules run in order driving, battery, network, storage; the first failure wins (FR-6, FR-38).
      *
-     * @param requiredBytes artifact size for the storage rule. 0 skips it, which is what the install
+     * @param requiredBytes manifest size for the storage rule. 0 skips it, which is what the install
      *   gate does: by then the bytes are already on disk.
      * @param checkNetwork false for a gate that moves no bytes (FR-42a). Installing reads a verified APK
      *   off local storage, so a dropped link is no reason to refuse it — otherwise a car that finished
@@ -65,7 +65,7 @@ class DefaultPolicyEvaluator(
         else Blocked(BlockReason.BATTERY, "battery ${s.battery.levelPercent}% below $required%")
     }
 
-    /** Free space must cover the artifact plus margin. Unknown space never blocks (FR-38). */
+    /** Free space must cover the manifest plus margin. Unknown space never blocks (FR-38). */
     private fun storage(s: DeviceState, c: Config, requiredBytes: Long): Blocked? {
         if (requiredBytes <= 0L || s.freeSpaceBytes < 0L) return null
         val needed = requiredBytes + requiredBytes * c.storageMarginPercent / 100

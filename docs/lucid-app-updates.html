@@ -140,7 +140,7 @@
       <g class="node" id="n-api"><rect x="505" y="45" width="160" height="60"/><text x="585" y="72">API + Manifest</text><text class="sub" x="585" y="89">region by VIN, mTLS</text></g>
       <g class="node" id="n-store"><rect x="505" y="125" width="160" height="60"/><text x="585" y="152">APK storage + CDN</text><text class="sub" x="585" y="169">per region</text></g>
       <g class="node" id="n-ana"><rect x="505" y="215" width="160" height="60"/><text x="585" y="242">Analytics</text><text class="sub" x="585" y="259">update events</text></g>
-      <g class="node" id="n-veh"><rect x="740" y="125" width="150" height="60"/><text x="815" y="152">Vehicle updater</text><text class="sub" x="815" y="169">auto + manual</text></g>
+      <g class="node" id="n-veh"><rect x="740" y="125" width="150" height="60"/><text x="815" y="152">Vehicle AppManager</text><text class="sub" x="815" y="169">auto + manual</text></g>
 
       <path class="edge" id="e1" d="M100 155 L140 155"/>
       <path class="edge" id="e2" d="M260 155 L300 155"/>
@@ -235,7 +235,7 @@
     { t: "Release Manager approves and publishes", d: "The release moves through QA debug, QA prod, Release debug and Release prod. The manifest and APK are published to each region.", nodes: ["rm", "api", "store"], edges: ["e3a", "e3b"], badge: "b3" },
     { t: "Vehicle gets the manifest", d: "The vehicle calls the API with its VIN over mTLS. The cloud resolves the region and returns a signed manifest.", nodes: ["veh", "api"], edges: ["e4"], badge: "b4" },
     { t: "Vehicle downloads and installs", d: "If auto-update is on and the car is on WiFi, the update runs. The driver can also tap Update now at any time.", nodes: ["store", "veh"], edges: ["e5"], badge: "b5" },
-    { t: "Vehicle reports update events", d: "The updater sends its lifecycle events to Analytics.", nodes: ["veh", "ana"], edges: ["e6"], badge: "b6" },
+    { t: "Vehicle reports update events", d: "The AppManager sends its lifecycle events to Analytics.", nodes: ["veh", "ana"], edges: ["e6"], badge: "b6" },
     { t: "Release Manager sees release health", d: "Analytics feeds the install results back so the team can tell whether the release is healthy.", nodes: ["ana", "rm"], edges: ["e7"], badge: "b7" }
   ];
   var STAGES = ["QA debug", "QA prod", "Release debug", "Release prod"];

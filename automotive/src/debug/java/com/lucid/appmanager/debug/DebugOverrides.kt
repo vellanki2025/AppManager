@@ -1,7 +1,7 @@
 package com.lucid.appmanager.debug
 
-import com.lucid.appmanager.catalogue.Artifact
-import com.lucid.appmanager.catalogue.ArtifactUrlProvider
+import com.lucid.appmanager.catalogue.Manifest
+import com.lucid.appmanager.catalogue.ApkUrlProvider
 import com.lucid.appmanager.catalogue.CatalogueProvider
 import com.lucid.appmanager.catalogue.SignedUrl
 import com.lucid.appmanager.download.model.BatteryState
@@ -37,7 +37,7 @@ object DebugState {
     @Volatile var freeSpaceBytes: Long? = null
 
     // cloud
-    @Volatile var artifact: Artifact? = null
+    @Volatile var manifest: Manifest? = null
     @Volatile var urlTtlMillis: Long = 30 * 60 * 1000L
     @Volatile var expireUrlNow: Boolean = false
     @Volatile var failUrlFetchTimes: Int = 0
@@ -60,7 +60,7 @@ object DebugState {
 
     fun reset() {
         clearSignals()
-        artifact = null
+        manifest = null
         urlTtlMillis = 30 * 60 * 1000L
         expireUrlNow = false
         failUrlFetchTimes = 0
@@ -76,7 +76,7 @@ object DebugState {
 
     fun dump(): String = buildString {
         appendLine("driving=$driving battery=$battery network=$networkClass cellular=$cellularSubscribed freeSpace=$freeSpaceBytes")
-        appendLine("artifact=${artifact?.packageName}@${artifact?.versionCode} urlTtlMs=$urlTtlMillis expireNow=$expireUrlNow failUrlFetch=$failUrlFetchTimes")
+        appendLine("manifest=${manifest?.packageName}@${manifest?.versionCode} urlTtlMs=$urlTtlMillis expireNow=$expireUrlNow failUrlFetch=$failUrlFetchTimes")
         appendLine("range=$rangeSupported httpStatus=$forcedHttpStatus transientLeft=$transientFailuresLeft speedKbps=$speedKbps")
         appendLine("corrupt=$corruptNextDownload truncateBy=$truncateNextDownloadBy localApk=$localApkPath")
         append("installFailureCode=$forcedInstallFailureCode")
@@ -130,18 +130,18 @@ class DebugStorageMonitor(private val real: StorageMonitor) : StorageMonitor {
 // ---------------------------------------------------------------- cloud decorators
 
 class DebugCatalogueProvider(private val real: CatalogueProvider) : CatalogueProvider {
-    override suspend fun availableArtifacts(): List<Artifact> =
-        DebugState.artifact?.let { listOf(it) } ?: real.availableArtifacts()
+    override suspend fun availableManifests(): List<Manifest> =
+        DebugState.manifest?.let { listOf(it) } ?: real.availableManifests()
 }
 
 /** Injects expiry and fetch failures so FR-31 and FR-32 can be exercised on demand. */
-class DebugUrlProvider(private val real: ArtifactUrlProvider) : ArtifactUrlProvider {
-    override suspend fun downloadUrl(artifactId: String): SignedUrl {
+class DebugUrlProvider(private val real: ApkUrlProvider) : ApkUrlProvider {
+    override suspend fun downloadUrl(manifestId: String): SignedUrl {
         if (DebugState.failUrlFetchTimes > 0) {
             DebugState.failUrlFetchTimes--
             throw IOException("debug: forced URL fetch failure")
         }
-        val url = real.downloadUrl(artifactId)
+        val url = real.downloadUrl(manifestId)
         return when {
             DebugState.expireUrlNow -> {
                 DebugState.expireUrlNow = false

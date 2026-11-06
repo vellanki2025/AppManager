@@ -154,7 +154,7 @@ class HttpDownloadEngine(
                     }
                 }
 
-                HttpURLConnection.HTTP_NOT_FOUND -> return Outcome.Fatal("artifact not found (404)")
+                HttpURLConnection.HTTP_NOT_FOUND -> return Outcome.Fatal("manifest not found (404)")
 
                 else -> {
                     val retryable = code >= 500 || code == HTTP_TOO_MANY_REQUESTS
@@ -162,7 +162,7 @@ class HttpDownloadEngine(
                 }
             }
 
-            val total = connection.totalLength(offset) ?: request.artifact.sizeBytes.takeIf { it > 0 }
+            val total = connection.totalLength(offset) ?: request.manifest.sizeBytes.takeIf { it > 0 }
             connection.inputStream.use { stream -> copy(stream, offset, total, onProgress) }
             return Outcome.Done
         } catch (e: IOException) {
@@ -237,7 +237,6 @@ class HttpDownloadEngine(
     }
 
     private companion object {
-        const val PART_SUFFIX = ".part"
         const val BUFFER_BYTES = 64 * 1024
         const val DEFAULT_MAX_ATTEMPTS = 5
         const val HTTP_PARTIAL = 206

@@ -41,7 +41,7 @@ class AppManagerDownloadService : Service() {
 
     private val binder = object : IAppManagerDownloadService.Stub() {
         override fun getAvailableApps(): List<AppInfo> = runBlocking {
-            component.catalogue.availableArtifacts().map { a ->
+            component.catalogue.availableManifests().map { a ->
                 AppInfo(
                     packageName = a.packageName,
                     title = a.title,

@@ -3,7 +3,7 @@ package com.lucid.appmanager.download.verify
 import android.content.pm.PackageManager
 import android.content.pm.Signature
 import android.os.Build
-import com.lucid.appmanager.catalogue.Artifact
+import com.lucid.appmanager.catalogue.Manifest
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -33,37 +33,37 @@ class IntegrityVerifier(
     private val packages: PackageManager,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
-    suspend fun verify(apk: File, artifact: Artifact): VerifyResult = withContext(ioDispatcher) {
+    suspend fun verify(apk: File, manifest: Manifest): VerifyResult = withContext(ioDispatcher) {
         if (!apk.exists()) return@withContext VerifyResult.Failed(VerifyResult.Reason.LENGTH, "file missing")
 
-        if (artifact.sizeBytes > 0 && apk.length() != artifact.sizeBytes) {
+        if (manifest.sizeBytes > 0 && apk.length() != manifest.sizeBytes) {
             return@withContext VerifyResult.Failed(
                 VerifyResult.Reason.LENGTH,
-                "expected ${artifact.sizeBytes} bytes, got ${apk.length()}",
+                "expected ${manifest.sizeBytes} bytes, got ${apk.length()}",
             )
         }
 
         val info = packages.getPackageArchiveInfo(apk.absolutePath, SIGNING_FLAGS)
             ?: return@withContext VerifyResult.Failed(VerifyResult.Reason.NOT_AN_APK, "not a parsable APK")
 
-        if (info.packageName != artifact.packageName) {
+        if (info.packageName != manifest.packageName) {
             return@withContext VerifyResult.Failed(
                 VerifyResult.Reason.NOT_AN_APK,
-                "APK is ${info.packageName}, artifact is ${artifact.packageName}",
+                "APK is ${info.packageName}, manifest is ${manifest.packageName}",
             )
         }
 
-        if (artifact.digest.value.isNotBlank()) {
-            val actual = digest(apk, artifact.digest.algorithm)
-            if (!artifact.digest.matches(actual)) {
+        if (manifest.digest.value.isNotBlank()) {
+            val actual = digest(apk, manifest.digest.algorithm)
+            if (!manifest.digest.matches(actual)) {
                 return@withContext VerifyResult.Failed(
                     VerifyResult.Reason.DIGEST,
-                    "${artifact.digest.algorithm} mismatch: expected ${artifact.digest.value}, got $actual",
+                    "${manifest.digest.algorithm} mismatch: expected ${manifest.digest.value}, got $actual",
                 )
             }
         }
 
-        verifySigner(apk, artifact.packageName)
+        verifySigner(apk, manifest.packageName)
     }
 
     /**

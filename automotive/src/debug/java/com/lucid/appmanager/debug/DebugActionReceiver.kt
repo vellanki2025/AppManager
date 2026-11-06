@@ -77,9 +77,9 @@ class DebugActionReceiver : BroadcastReceiver() {
             "CLEAR_SIGNAL_OVERRIDES" -> { DebugFlagActions.clearSignalOverrides(); null }
 
             // 8.4 cloud and URL
-            "SET_ARTIFACT" -> {
-                val pkg = intent.getStringExtra("pkg") ?: return log("SET_ARTIFACT needs --es pkg")
-                DebugFlagActions.setArtifact(
+            "SET_MANIFEST" -> {
+                val pkg = intent.getStringExtra("pkg") ?: return log("SET_MANIFEST needs --es pkg")
+                DebugFlagActions.setManifest(
                     packageName = pkg,
                     versionCode = intent.getLongExtra("code", intent.getIntExtra("code", 1).toLong()),
                     sizeBytes = intent.getLongExtra("size", 0L),
@@ -87,7 +87,7 @@ class DebugActionReceiver : BroadcastReceiver() {
                 )
                 null
             }
-            "CLEAR_ARTIFACT" -> { DebugFlagActions.clearArtifact(); null }
+            "CLEAR_MANIFEST" -> { DebugFlagActions.clearManifest(); null }
             "EXPIRE_URL_NOW" -> { DebugFlagActions.expireUrlNow(); null }
             "FAIL_URL_FETCH" -> { DebugFlagActions.failUrlFetch(intent.getIntExtra("times", 1)); null }
             "SET_URL_TTL" -> { DebugFlagActions.setUrlTtlSeconds(intent.getIntExtra("seconds", 1800)); null }

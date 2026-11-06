@@ -22,7 +22,7 @@ install against what is installed; fetching a short-lived APK URL; downloading w
 integrity and provenance; installing by one of two paths; surviving process death, reboot and system stop.
 
 **Out of scope, deliberately.** Uninstall, downgrade and rollback. Split APKs and APEX. More than one
-artifact per run. Self-update — this APK ships in the system image by OTA and never updates itself.
+manifest per run. Self-update — this APK ships in the system image by OTA and never updates itself.
 Unit tests, per the standing project decision.
 
 | | |
@@ -39,7 +39,7 @@ Unit tests, per the standing project decision.
 
 ```
 com.lucid.appmanager
-├── catalogue/        Artifact, SignedUrl, CatalogueProvider, ArtifactChecker
+├── catalogue/        Manifest, SignedUrl, CatalogueProvider, ManifestChecker
 ├── download/
 │   ├── config/       Config, FeatureFlags, ConfigRepository
 │   ├── engine/       DownloadEngine, HttpDownloadEngine, UrlSession
@@ -66,7 +66,7 @@ names them — see [§11](#11-debug-actions).
 One invocation of `download_run`:
 
 ```
-gate → ① artifact check → storage gate → ② fetch APK URL → ③ download → ④ verify → gate again → ⑤ install
+gate → ① manifest check → storage gate → ② fetch APK URL → ③ download → ④ verify → gate again → ⑤ install
 ```
 
 Five stages bracketed by two evaluations of the same policy gate. A run that already has a verified APK on
@@ -76,8 +76,8 @@ disk skips ①–④ entirely and re-enters at the install gate.
 |---|---|---|
 | Trigger | `daily_trigger` fires, enqueues `download_run` | the kill switch is off |
 | **Gate** | driving, battery, network | any rule fails → `WAITING`, recheck in 15 min |
-| **① Artifact check** | catalogue vs installed `versionCode` | installed ≥ offered → `UP_TO_DATE`, zero bytes |
-| **Storage gate** | artifact size + 10% must fit | → `WAITING` |
+| **① Manifest check** | catalogue vs installed `versionCode` | installed ≥ offered → `UP_TO_DATE`, zero bytes |
+| **Storage gate** | manifest size + 10% must fit | → `WAITING` |
 | **② Fetch URL** | mint a signed URL, 30 min TTL | the backend refuses |
 | **③ Download** | `Range` resume into `.part`, atomic rename | 404, or the retry ladder is exhausted |
 | **④ Verify** | length → APK parse → SHA-256 → signer | two failures in a row |
@@ -106,7 +106,7 @@ rather than repeating the `BLOCKED_*` event, so a long wait does not flood the l
 | Driving | stationary: `PARKED`, `ACCESSORY`, `STOPPED` or `TURNED_OFF`. `DRIVING` blocks; `UNKNOWN` blocks too, because an unread signal is not a parked car |
 | Battery | ≥ 20%, or charging at any level. Resuming after a battery block needs 20 + 5 = **25%** |
 | Network | validated unmetered Wi-Fi, or the vehicle's own cellular with `WIFI_OR_CELLULAR` **and** a connectivity subscription. Metered Wi-Fi, ethernet and none always refuse |
-| Storage | free space ≥ artifact size + 10%. Unknown free space (`-1`) never blocks |
+| Storage | free space ≥ manifest size + 10%. Unknown free space (`-1`) never blocks |
 
 Charging below the threshold still proceeds, and logs `CHARGING_OVERRIDE`.
 
@@ -127,14 +127,14 @@ saved offset.
 ## 5. Cloud contract
 
 Two calls, deliberately. The catalogue describes *what* to install; a second call produces *where* to get
-it. A 30-minute URL cannot live inside a long-lived artifact.
+it. A 30-minute URL cannot live inside a long-lived manifest.
 
 ```kotlin
-Artifact(artifactId, packageName, title, versionName, versionCode, sizeBytes, digest)
+Manifest(manifestId, packageName, title, versionName, versionCode, sizeBytes, digest)
 SignedUrl(url, expiresAt)
 
-CatalogueProvider.availableArtifacts(): List<Artifact>
-ArtifactUrlProvider.downloadUrl(artifactId): SignedUrl
+CatalogueProvider.availableManifests(): List<Manifest>
+ApkUrlProvider.downloadUrl(manifestId): SignedUrl
 ```
 
 Comparison is on `versionCode`, never `versionName` — that one is a free-form string, and sorting it as
@@ -237,17 +237,30 @@ the printed path.
 ## 9. State, resume and cancel
 
 ```kotlin
-RunState(runId, phase, artifactId, apkPath, waitReason, hasStarted, progress,
+RunState(runId, phase, manifestId, apkPath, waitReason, hasStarted, progress,
          lastStateChangeAt, lastSuccessAt)
 ```
 
 `phase` is `IDLE`, `RUNNING`, `WAITING` or `INSTALLING`. Written through `RunStateStore` on every
 transition, so a process death mid-run is restored and logged as `STATE_RESTORED`.
 
-**`apkPath` and `artifactId` are a pair.** A staged APK is reused only when `artifactId` matches the
-artifact the current run just checked. The catalogue can publish a newer version while a run sits blocked;
-without that guard the run installs the older staged APK. A mismatch deletes the stale file and emits
-`RESTARTED_FROM_ZERO`.
+**`apkPath` and `manifestId` are a pair.** A staged APK is reused only when `manifestId` matches the
+manifest the current run just checked. The catalogue can publish a newer version while a run sits blocked;
+without that guard the run installs the older staged APK.
+
+**One manifest at a time: when a new one arrives, the old one's bytes go.** On a mismatch the run deletes
+everything in the download directory — the verified APK *and* any partial `.part` — clears `apkPath`,
+resets the started flag so the next transfer reports `DOWNLOAD_STARTED` rather than `RESUMED`, and emits
+`RESTARTED_FROM_ZERO` naming what it dropped.
+
+The `.part` half matters as much as the APK. It is named after the package, not the version, and the
+`If-Range` validator lives on the engine instance, which is rebuilt per run — so across runs there is no
+validator and the server cannot police the resume. Without the sweep, a catalogue change during a pause
+would append new-version bytes onto old ones. The digest catches it, but only after a wasted transfer and
+one of just two verify attempts, so a genuinely transient second failure would then fail the run.
+
+Anything else in the directory is swept on the same principle: with one manifest in flight there is
+nothing else it could belong to.
 
 Three ways a run ends abnormally, kept distinguishable on purpose:
 
@@ -300,7 +313,7 @@ adb logcat -s DlService
 | Flags | `SET_SERVICE_ENABLED` `SET_INSTALL_MODE` `DUMP_FLAGS` |
 | Schedule | `TRIGGER_NOW` `SET_SCHEDULE_TIME` `CANCEL_RUN` |
 | Gate | `SET_NETWORK_TYPE` `SET_DRIVING` `SET_BATTERY` `SET_NETWORK` `SET_CELLULAR_SUBSCRIBED` `SET_FREE_SPACE` `CLEAR_SIGNAL_OVERRIDES` |
-| Cloud | `SET_ARTIFACT` `CLEAR_ARTIFACT` `EXPIRE_URL_NOW` `FAIL_URL_FETCH` `SET_URL_TTL` |
+| Cloud | `SET_MANIFEST` `CLEAR_MANIFEST` `EXPIRE_URL_NOW` `FAIL_URL_FETCH` `SET_URL_TTL` |
 | Download | `SET_RANGE_SUPPORT` `FORCE_HTTP_STATUS` `FORCE_TRANSIENT_FAILURES` `SET_SPEED` |
 | Integrity | `CORRUPT_NEXT_DOWNLOAD` `TRUNCATE_NEXT_DOWNLOAD` `USE_APK` |
 | Install A | `INSTALL_NOW` `FORCE_INSTALL_FAILURE` |
@@ -378,8 +391,8 @@ behind it.
 `Dependencies` default and the debug engine stands in via `USE_APK`. Resume, `If-Range`, `Content-Range`
 validation and the retry ladder are written but untested against HTTP.
 
-**The cloud contract has no sign-off.** `Artifact`, `SignedUrl` and the two-call split are our proposal.
-`ArtifactChecker` and `UrlSession` are the blast radius if the real contract differs.
+**The cloud contract has no sign-off.** `Manifest`, `SignedUrl` and the two-call split are our proposal.
+`ManifestChecker` and `UrlSession` are the blast radius if the real contract differs.
 
 **Privileged install is unverified on a head unit.** Only `INSTALL_NEEDS_USER_ACTION` has been seen, which
 is the correct unprivileged answer. The silent path needs the privapp allowlist in the image.
@@ -393,7 +406,7 @@ bug above.
 the override check degrades to "report on the first start after staging".
 
 **Deferred.** A platform helper service for privileged partition writes — the production answer to path B.
-Uninstall, downgrade, rollback. Split APKs and APEX. More than one artifact per run. Unit tests.
+Uninstall, downgrade, rollback. Split APKs and APEX. More than one manifest per run. Unit tests.
 
 ---
 

@@ -1,8 +1,8 @@
 package com.lucid.appmanager.install
 
 import android.content.Context
-import com.lucid.appmanager.catalogue.Artifact
-import com.lucid.appmanager.catalogue.ArtifactChecker
+import com.lucid.appmanager.catalogue.Manifest
+import com.lucid.appmanager.catalogue.ManifestChecker
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -34,7 +34,7 @@ sealed interface OverrideCheck {
 class OverrideStagingInstaller(
     private val context: Context,
     private val store: PendingOverrideStore,
-    private val checker: ArtifactChecker,
+    private val checker: ManifestChecker,
     /** Partition directory the printed adb sequence targets (C7). */
     private val targetPartitionDir: String = DEFAULT_PARTITION_DIR,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -42,12 +42,12 @@ class OverrideStagingInstaller(
 
     override val mode = InstallMode.APK_OVERRIDE
 
-    override suspend fun install(artifact: Artifact, apk: File): InstallOutcome = withContext(ioDispatcher) {
+    override suspend fun install(manifest: Manifest, apk: File): InstallOutcome = withContext(ioDispatcher) {
         if (!apk.exists() || apk.length() == 0L) {
             return@withContext InstallOutcome.Failed(-1, "APK missing or empty at ${apk.absolutePath}")
         }
 
-        val staged = stagedFile(artifact.packageName)
+        val staged = stagedFile(manifest.packageName)
         staged.parentFile?.mkdirs()
         staged.delete()
         try {
@@ -58,10 +58,10 @@ class OverrideStagingInstaller(
 
         store.save(
             PendingOverride(
-                packageName = artifact.packageName,
-                targetVersionCode = artifact.versionCode,
+                packageName = manifest.packageName,
+                targetVersionCode = manifest.versionCode,
                 stagedPath = staged.absolutePath,
-                digest = artifact.digest,
+                digest = manifest.digest,
                 stagedAt = System.currentTimeMillis(),
                 bootCountAtStaging = PendingOverrideStore.bootCount(context),
             ),

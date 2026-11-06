@@ -21,7 +21,7 @@ Single app module `automotive`, package `com.lucid.appmanager`:
 | `signals` | Adapters from the vehicle signal library to the two core interfaces. The only place that touches vehicle APIs. |
 | `ipc` | `AppManagerDownloadService`, the AIDL surface used by the Compose UI and by other store clients |
 | `ui` | Compose status screen; talks to the service only through AIDL |
-| `catalogue` | `Artifact`, `CatalogueProvider`, `ArtifactUrlProvider`, `ArtifactChecker`. Stubs until the backend exists |
+| `catalogue` | `Manifest`, `CatalogueProvider`, `ApkUrlProvider`, `ManifestChecker`. Stubs until the backend exists |
 | `install` | Both install paths, the pending-override record and the non-exported install result receiver |
 | `download.verify` | `IntegrityVerifier`: length, APK parse, digest, signing certificate |
 | `debug` | **Debug builds only.** `DebugFlagActions`, its adb receiver and the decorators they drive |
@@ -49,7 +49,7 @@ emit fail-safe values, so the gate blocks on `DRIVING`. Add the library's permis
    metered hotspots are always blocked), then
 
    ```
-   ① artifact check → ② fetch APK URL → ③ download → ④ verify → gate again → ⑤ install
+   ① manifest check → ② fetch APK URL → ③ download → ④ verify → gate again → ⑤ install
    ```
 
    Mid-run violations cancel the engine, persist `WAITING(reason)` and end the worker. A system stop is
@@ -108,7 +108,7 @@ is advisory, the device is authoritative.
 
 ## Cloud contract
 
-Two calls, deliberately. The artifact says *what* to install and is cached across a wait; the URL is
+Two calls, deliberately. The manifest says *what* to install and is cached across a wait; the URL is
 fetched separately, lives 30 minutes, and is fetched only once the policy gate has opened and the download
 is about to begin. A run routinely waits hours, so a URL fetched any earlier would be dead on arrival.
 
@@ -168,9 +168,9 @@ adb logcat -s DlService          # replies and events land here, tagged [debug]
 
 | Use case | Action | API |
 |---|---|---|
-| Inject the artifact to install | `SET_ARTIFACT --es pkg com.x --el code 42 [--el size N] [--es digest <hex>]` | `setArtifact` |
-| Prove the up-to-date short-circuit | `SET_ARTIFACT` with the installed `code` | — |
-| Back to the real catalogue | `CLEAR_ARTIFACT` | `clearArtifact` |
+| Inject the manifest to install | `SET_MANIFEST --es pkg com.x --el code 42 [--el size N] [--es digest <hex>]` | `setManifest` |
+| Prove the up-to-date short-circuit | `SET_MANIFEST` with the installed `code` | — |
+| Back to the real catalogue | `CLEAR_MANIFEST` | `clearManifest` |
 | Transparent mid-download refresh | `EXPIRE_URL_NOW` | `expireUrlNow` |
 | Exhaust the refresh bound | `FAIL_URL_FETCH --ei times 4` | `failUrlFetch` |
 | Shorten the TTL so expiry lands mid-download | `SET_URL_TTL --ei seconds 30` | `setUrlTtlSeconds` |
@@ -263,7 +263,7 @@ keeps its offset across pauses within the process.
 - **Driving blocks both download and install** (2026-10-12). The download gate keeps the driving rule as its
   first check and pauses a running download when the vehicle leaves PARKED. The install phase applies the same
   rule. This supersedes the "downloads are not tied to vehicle state" assumption in
-  `vehicle-updater-service-flow.html`.
+  `docs/vehicle-updater-service-flow.html`.
 - **Cellular is a Settings choice, never a prompt** (2026-10-12). The "Wi-Fi or cellular" option is shown
   only while the vehicle has a connectivity subscription; otherwise the setting is hidden and the policy
   treats the vehicle as Wi-Fi only even if the stored value says cellular. Applies to scheduled and manual
@@ -272,7 +272,7 @@ keeps its offset across pauses within the process.
 ## Deferred
 
 A platform helper service for privileged partition writes — the production answer to the override install
-path. Uninstall, downgrade and rollback. Split APKs and APEX. More than one artifact per run.
+path. Uninstall, downgrade and rollback. Split APKs and APEX. More than one manifest per run.
 
 Unit tests are not written yet; `PolicyEvaluator`, `NetworkClassifier`, `DrivingStateMapper` and
 `Scheduler.delayToNext` are pure and ready for them.

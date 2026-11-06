@@ -1,9 +1,9 @@
 package com.lucid.appmanager.download.run
 
 import androidx.work.ForegroundInfo
-import com.lucid.appmanager.catalogue.Artifact
-import com.lucid.appmanager.catalogue.ArtifactChecker
-import com.lucid.appmanager.catalogue.ArtifactUrlProvider
+import com.lucid.appmanager.catalogue.Manifest
+import com.lucid.appmanager.catalogue.ManifestChecker
+import com.lucid.appmanager.catalogue.ApkUrlProvider
 import com.lucid.appmanager.catalogue.CheckResult
 import com.lucid.appmanager.download.config.ConfigRepository
 import com.lucid.appmanager.download.config.FeatureFlags
@@ -11,6 +11,7 @@ import com.lucid.appmanager.download.engine.DownloadEngineFactory
 import com.lucid.appmanager.download.engine.DownloadRequest
 import com.lucid.appmanager.download.engine.DownloadResult
 import com.lucid.appmanager.download.engine.HttpDownloadEngine
+import com.lucid.appmanager.download.engine.PART_SUFFIX
 import com.lucid.appmanager.download.engine.UrlSession
 import com.lucid.appmanager.download.events.EventBus
 import com.lucid.appmanager.download.events.EventType
@@ -53,7 +54,7 @@ import java.util.concurrent.atomic.AtomicReference
  * stays an orchestrator rather than growing the logic itself:
  *
  * ```
- * gate → ① artifact check → ② fetch APK URL → ③ download → ④ verify → gate again → ⑤ install
+ * gate → ① manifest check → ② fetch APK URL → ③ download → ④ verify → gate again → ⑤ install
  * ```
  *
  * A resumed run that already has a verified APK on disk skips ①–④ entirely. That is what stops a
@@ -70,8 +71,8 @@ class RunCoordinator(
     private val events: EventBus,
     private val notifications: NotificationController,
     private val clock: Clock,
-    private val checker: ArtifactChecker,
-    private val urlProvider: ArtifactUrlProvider,
+    private val checker: ManifestChecker,
+    private val urlProvider: ApkUrlProvider,
     private val verifier: IntegrityVerifier,
     private val installerFor: (InstallMode) -> Installer,
     private val downloadDir: File,
@@ -106,6 +107,7 @@ class RunCoordinator(
         val runId = if (saved.phase == RunPhase.IDLE) UUID.randomUUID().toString().take(8) else saved.runId
         val previousBlock = saved.waitReason
         val progress = AtomicReference(saved.progress)
+        var startedBefore = saved.hasStarted
         var cfg = config.config.first()
         var device: DeviceState? = null
         if (saved.phase == RunPhase.RUNNING) emit(EventType.STATE_RESTORED, runId, null, progress.get(), cfg, "process restarted mid-run")
@@ -129,7 +131,7 @@ class RunCoordinator(
                 return
             }
 
-            // ---------------------------------------------------------------- ① artifact (FR-28, FR-29)
+            // ---------------------------------------------------------------- ① manifest (FR-28, FR-29)
             // The catalogue is a cloud call. A link that dropped between the gate and here, or a backend
             // that is simply down, must not throw out of the worker with no event and no state (FR-28a):
             // it is a connectivity-class problem, so the run waits and rechecks like any network block.
@@ -145,8 +147,8 @@ class RunCoordinator(
                 )
                 return
             }
-            val artifact: Artifact = when (checked) {
-                is CheckResult.Update -> checked.artifact
+            val manifest: Manifest = when (checked) {
+                is CheckResult.Update -> checked.manifest
                 is CheckResult.UpToDate -> {
                     complete(runId, device, cfg, EventType.UP_TO_DATE, "${checked.packageName} already at ${checked.versionCode}")
                     return
@@ -157,17 +159,34 @@ class RunCoordinator(
                 }
             }
 
-            // A verified APK from an earlier attempt means ①–④ are already done (design §3) — but only
-            // when it is an APK of the artifact this run just checked. The catalogue can move on while a
-            // run sits blocked, and reusing the older file would install the wrong version.
+            // One manifest at a time: when a new one arrives, the old one's bytes go (FR-39a, FR-39b).
+            //
+            // This covers both halves of "what is already on disk". A *verified* APK means stages ①–④ are
+            // already done and can be skipped, but only for the manifest this run just checked. A
+            // *partial* .part file is just as dangerous: it is named after the package, not the version,
+            // so resuming one across a catalogue change would append new-version bytes onto old ones —
+            // caught later by the digest, but only after a wasted transfer and one of just two verify
+            // attempts. Anything in the directory that is not this manifest's is swept for the same
+            // reason: with one manifest in flight, there is nothing else it could belong to.
             val staged = saved.apkPath?.let(::File)?.takeIf { it.exists() }
-            val readyApk = staged?.takeIf { saved.artifactId == artifact.artifactId }
-            if (staged != null && readyApk == null) {
-                staged.delete()
-                store.update { it.copy(apkPath = null) }
+            val sameManifest = saved.manifestId != null && saved.manifestId == manifest.manifestId
+            val readyApk = staged?.takeIf { sameManifest }
+
+            val keep = if (sameManifest) {
+                setOf("${manifest.packageName}.apk", "${manifest.packageName}.apk$PART_SUFFIX")
+            } else {
+                emptySet()
+            }
+            val dropped = downloadDir.listFiles().orEmpty().filter { it.name !in keep && it.delete() }
+            // Nothing of this manifest survives, so the next transfer is a start and not a resume.
+            if (dropped.isNotEmpty()) startedBefore = false
+            if (dropped.isNotEmpty()) {
+                store.update { it.copy(apkPath = null, progress = null, hasStarted = false) }
+                progress.set(null)
                 emit(
                     EventType.RESTARTED_FROM_ZERO, runId, device, null, cfg,
-                    "staged APK was for ${saved.artifactId}, catalogue now offers ${artifact.artifactId}",
+                    "manifest changed from ${saved.manifestId ?: "none"} to ${manifest.manifestId}; " +
+                        "dropped ${dropped.joinToString { it.name }}",
                 )
             }
             var verified: File? = readyApk
@@ -179,7 +198,7 @@ class RunCoordinator(
                 // for 30 minutes must not be spent on a run whose gate has closed again in the meantime.
                 // evaluate() runs all four rules, so a battery that dropped or a car that moved blocks here.
                 device = monitor.snapshot()
-                val storage = policy.evaluate(device, cfg, previousBlock, requiredBytes = artifact.sizeBytes)
+                val storage = policy.evaluate(device, cfg, previousBlock, requiredBytes = manifest.sizeBytes)
                 if (storage is PolicyDecision.Blocked) {
                     wait(runId, storage, device, progress.get(), cfg, saved, paused = false)
                     return
@@ -188,7 +207,7 @@ class RunCoordinator(
                 // -------------------------------------------------------- ② URL, as late as possible (FR-30)
                 val urls = UrlSession(
                     provider = urlProvider,
-                    artifactId = artifact.artifactId,
+                    manifestId = manifest.manifestId,
                     clock = Clock.systemUTC(),
                 ) { emit(EventType.URL_REFRESHED, runId, device, progress.get(), cfg, "expires ${it.expiresAt}") }
 
@@ -201,19 +220,19 @@ class RunCoordinator(
                 emit(EventType.URL_FETCHED, runId, device, progress.get(), cfg, "expires ${first.expiresAt}")
 
                 // -------------------------------------------------------- ③ + ④ download and verify (FR-34 .. FR-41)
-                val target = File(downloadDir, "${artifact.packageName}.apk")
+                val target = File(downloadDir, "${manifest.packageName}.apk")
                 var attempt = 0
                 while (verified == null) {
                     store.update {
-                        it.copy(runId = runId, phase = RunPhase.RUNNING, waitReason = null, hasStarted = true, artifactId = artifact.artifactId, apkPath = null)
+                        it.copy(runId = runId, phase = RunPhase.RUNNING, waitReason = null, hasStarted = true, manifestId = manifest.manifestId, apkPath = null)
                     }
                     if ((decision as? PolicyDecision.Allowed)?.chargingOverride == true && attempt == 0) {
                         emit(EventType.CHARGING_OVERRIDE, runId, device, progress.get(), cfg, "charging below threshold")
                     }
                     setForeground(notifications.foregroundInfo(progress.get()))
-                    emit(if (saved.hasStarted || attempt > 0) EventType.RESUMED else EventType.DOWNLOAD_STARTED, runId, device, progress.get(), cfg)
+                    emit(if (startedBefore || attempt > 0) EventType.RESUMED else EventType.DOWNLOAD_STARTED, runId, device, progress.get(), cfg)
 
-                    val engine = engineFactory.create(DownloadRequest(artifact, urls, target))
+                    val engine = engineFactory.create(DownloadRequest(manifest, urls, target))
                     activeEngine.set(engine)
                     val outcome = try {
                         runEngine(engine, runId, progress, cfg, device) { d, c -> device = d; cfg = c }
@@ -232,7 +251,7 @@ class RunCoordinator(
                         DownloadOutcome.Done -> Unit
                     }
 
-                    when (val result = verifier.verify(target, artifact)) {
+                    when (val result = verifier.verify(target, manifest)) {
                         VerifyResult.Ok -> verified = target
                         is VerifyResult.Failed -> {
                             target.delete()
@@ -268,19 +287,19 @@ class RunCoordinator(
             val installer = installerFor(mode)
             emit(EventType.INSTALL_STARTED, runId, device, null, cfg, "mode $mode")
 
-            when (val outcome = installer.install(artifact, verified)) {
+            when (val outcome = installer.install(manifest, verified)) {
                 InstallOutcome.Installed -> {
                     // FR-44: the platform's answer is advisory, the device is authoritative.
-                    val now = checker.installedVersionCode(artifact.packageName)
-                    if (now != null && now >= artifact.versionCode) {
-                        complete(runId, device, cfg, EventType.INSTALL_COMPLETE, "${artifact.packageName} at $now")
+                    val now = checker.installedVersionCode(manifest.packageName)
+                    if (now != null && now >= manifest.versionCode) {
+                        complete(runId, device, cfg, EventType.INSTALL_COMPLETE, "${manifest.packageName} at $now")
                     } else {
                         fail(runId, device, null, cfg, EventType.INSTALL_FAILED, "installer reported success but versionCode is $now")
                     }
                 }
 
                 InstallOutcome.Staged ->
-                    complete(runId, device, cfg, EventType.OVERRIDE_STAGED, "staged ${artifact.packageName} v${artifact.versionCode}; apply with adb, takes effect next reboot")
+                    complete(runId, device, cfg, EventType.OVERRIDE_STAGED, "staged ${manifest.packageName} v${manifest.versionCode}; apply with adb, takes effect next reboot")
 
                 InstallOutcome.NeedsUserAction ->
                     fail(runId, device, null, cfg, EventType.INSTALL_NEEDS_USER_ACTION, "platform wants a confirmation dialog; not privileged?")
@@ -313,7 +332,7 @@ class RunCoordinator(
         activeEngine.getAndSet(null)?.discard()
         val saved = store.load()
         saved.apkPath?.let { File(it).delete() }
-        store.update { it.copy(phase = RunPhase.IDLE, waitReason = null, hasStarted = false, progress = null, artifactId = null, apkPath = null) }
+        store.update { it.copy(phase = RunPhase.IDLE, waitReason = null, hasStarted = false, progress = null, manifestId = null, apkPath = null) }
         emit(event, saved.runId, null, null, null, "run cancelled")
     }
 
@@ -365,7 +384,7 @@ class RunCoordinator(
         store.update {
             it.copy(
                 phase = RunPhase.IDLE, waitReason = null, hasStarted = false,
-                progress = null, artifactId = null, apkPath = null, lastSuccessAt = clock.millis(),
+                progress = null, manifestId = null, apkPath = null, lastSuccessAt = clock.millis(),
             )
         }
         emit(type, runId, device, null, cfg, message)

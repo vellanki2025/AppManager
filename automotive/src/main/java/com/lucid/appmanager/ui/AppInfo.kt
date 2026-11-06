@@ -6,7 +6,7 @@ import android.os.Parcelable
 /**
  * One catalogue entry exposed over AIDL.
  *
- * The client-facing view of [com.lucid.appmanager.catalogue.Artifact]; the artifact itself stays internal so
+ * The client-facing view of [com.lucid.appmanager.catalogue.Manifest]; the manifest itself stays internal so
  * the cloud contract does not leak across the binder. `versionCode` is the comparison key —
  * `versionName` is a display string and is never compared.
  */
