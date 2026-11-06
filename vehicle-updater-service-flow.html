@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Lucid App Updates - Vehicle updater service (Android)</title>
+<title>Vehicle AppManager</title>
 <style>
 :root{--bg:#ffffff;--fg:#1b2430;--muted:#5b6675;--line:#d5dbe3;--card:#f6f8fb;--accent:#2457c5;--accentbg:#e8eefb;--ok:#1a7f4b;--okbg:#e6f4ec;--err:#b3261e;--errbg:#fbeae8;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14181f;--fg:#e8ecf1;--muted:#9aa5b4;--line:#2d3644;--card:#1b222c;--accent:#7aa2f7;--accentbg:#1e2a44;--ok:#4cc38a;--okbg:#17302a;--err:#f2877f;--errbg:#3a1f1f}}
@@ -61,15 +61,15 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
 </head>
 <body>
 <main>
-  <h1>Vehicle updater service (Android)</h1>
-  <div style="border-left:4px solid #b4531a;background:#fdeee3;color:#3a2615;padding:12px 16px;border-radius:0 8px 8px 0;margin:0 0 18px;font-size:14px;line-height:1.5">
-    <b>Partly superseded.</b> The cloud contract here is the older <b>signed manifest</b>, which carried the download URL inside it. v4 splits that into two calls - a catalogue of artifacts, then a separately fetched APK URL with a 30-minute TTL - because a short-lived URL cannot live inside a long-lived document (assumption A12). The HMI behaviour, the hold reasons and the analytics events below are still current.
-    The on-vehicle download and install pipeline as built is in
-    <a href="docs/event-flow.html" style="color:#b4531a">docs/event-flow.html</a>,
-    and <a href="docs/design.md" style="color:#b4531a">docs/design.md</a>.
+  <h1>Vehicle AppManager</h1>
+  <div style="border-left:4px solid #2457c5;background:#e8effc;color:#16233d;padding:12px 16px;border-radius:0 8px 8px 0;margin:0 0 18px;font-size:14px;line-height:1.5">
+    The flows below match the service as built. Step through the same pipeline one event at a time in
+    <a href="docs/event-flow.html" style="color:#2457c5">docs/event-flow.html</a>;
+    the contracts, thresholds and decisions behind it are in
+    <a href="docs/design.md" style="color:#2457c5">docs/design.md</a>.
   </div>
 
-  <p class="sub">Sequence diagrams, rules, in-app experience and lifecycle events for the on-vehicle update service in Lucid App Updates. Two cases: the 1 AM automatic update and Update now. Vehicle side only; the Cloud API appears just as the boundary.</p>
+  <p class="sub">Sequence diagrams, rules, in-app experience and lifecycle events for the on-vehicle AppManager service. Two cases: the nightly 02:00 run and Update now. Vehicle side only; the Cloud API appears just as the boundary.</p>
 
   <div class="tabs" role="tablist" id="tabs">
     <button role="tab" aria-selected="true" data-tab="seq">Sequence diagrams</button>
@@ -87,7 +87,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
 
   <section class="panel" id="p-aiu">
     <h2>What the user sees when an app is updated</h2>
-    <p class="sub">The service decides only from vehicle state: a fixed baseline (driving: never download or install; parked: download, then install with a message on the HMI) plus per-app install rules from the manifest, such as "not in egress mode". It does not ask individual apps, or the system, what an app is doing.</p>
+    <p class="sub">The service decides from vehicle state alone: never download or install while driving; when the vehicle is stationary, download and then install. It does not ask individual apps, or the system, what an app is doing.</p>
     <h3>If the car switches to driving during an update</h3>
     <div class="tw"><table id="drvtbl"></table></div>
     <h3 style="margin-top:22px">What the user sees</h3>
@@ -98,20 +98,13 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
 
   <section class="panel" id="p-rules">
     <h2>Rules for the two cases</h2>
-    <p class="sub">One decision table for the 1 AM automatic update and Update now. Numbers are placeholders to confirm with the vehicle and platform teams.</p>
+    <p class="sub">One decision table for the nightly 02:00 run and Update now. The thresholds are the defaults in <code>Config</code>; change them there rather than here.</p>
     <div class="tw"><table id="rtbl"></table></div>
     <h3 style="margin-top:20px">Hold reasons</h3>
-    <p>When a check fails, the update is HELD with one reason and resumes when the checks pass again: <code>driving</code>, <code>install_rule</code> (with the rule name, for example egress_mode), <code>vehicle_active</code>, <code>low_battery</code>, <code>poor_network</code>, <code>outside_window</code>, <code>low_storage</code>. The HMI shows the reason in plain words.</p>
-    <h3 style="margin-top:20px">Install rules in the manifest</h3>
-    <p class="cap">The Release Manager sets the rules per app. They come in the signed <code>/v1/manifest</code> response, are saved with the update on the vehicle, and are checked at install time. Downloads are never gated by them. Rules can only add limits: the baseline (never while driving, battery minimum) always applies and cannot be loosened.</p>
-    <pre>{
-  "appId": "com.lucid.navigation",
-  "versionCode": 40100,
-  "installRules": {
-    "blockedModes": ["egress"],
-    "ignition": "any"
-  }
-}</pre>
+    <p>When a rule fails, the run persists <code>WAITING</code> with one <code>BlockReason</code> and rechecks 15 minutes later: <code>DRIVING</code>, <code>BATTERY</code>, <code>NETWORK</code>, <code>STORAGE</code>, or <code>SYSTEM_STOP</code> when WorkManager stops the worker. An unreachable catalogue is reported as <code>NETWORK</code> with the cause in the message. The reason goes to the log and the AIDL status; it never reaches a row in the UI, which shows four fields and a fixed three-word state.</p>
+    <h3 style="margin-top:20px">Per-app install rules (not built)</h3>
+    <p class="cap">An earlier design had the Release Manager set per-app install rules, delivered inside a signed manifest and evaluated at install time. That is <b>not implemented</b>, and the current cloud contract has no place for it: the catalogue returns an <code>Artifact</code> carrying packageName, versionCode, size and digest, and nothing else. The gate is the four rules above, the same for every app.</p>
+    <p class="cap">It is recorded here because the capability may still be wanted. Adding it would mean extending the artifact contract and giving the install gate a per-artifact rule set, on top of the baseline, which would still not be loosenable: driving and battery would continue to apply whatever a rule said.</p>
   </section>
 
   <section class="panel" id="p-events">
@@ -125,16 +118,18 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
   <div class="assume">
     <h3>Assumptions to confirm</h3>
     <ul>
-      <li>Egress mode: I treated it as a vehicle mode the updater can read, reported by a vehicle signal. Please confirm what it is and which signal reports it. Other blocked modes can use the same rule.</li>
-      <li>Decided 2026-10-12: driving blocks both download and install. A download in progress pauses when driving starts, keeps its partial file and offset, and resumes after the gear has been in Park for 10 seconds. Downloads do not need the 1 AM window; installs do.</li>
-      <li>Manifest install rules can only add limits. The driving rule and battery minimum cannot be loosened by a manifest.</li>
+      <li>Ignition position must come from the vehicle signal library alongside gear and speed. Two driving states cannot be derived without it: a car with the ignition off reports gear Park and zero speed exactly like one with the ignition on, so TURNED_OFF and ACCESSORY are otherwise indistinguishable from PARKED. <code>RawDrivingSignals</code> has the field; the library is not connected yet.</li>
+      <li>STOPPED, stationary but in gear, is permitted by decision (2026-11-05). It is the one permitted state that is not inherently safe: the vehicle can move again without warning. A download is covered, since the watcher pauses it as soon as the state becomes DRIVING, but a commit already started has no equivalent check.</li>
+      <li>Decided 2026-10-12: driving blocks both download and install. A download in progress pauses when driving starts, keeps its partial file and offset, and resumes after 10 continuous seconds of a permitted state. Neither half is tied to a time window any more: one run does both, at 02:00 or on demand.</li>
+      <li>The cloud contract is still our proposal. <code>Artifact</code>, <code>SignedUrl</code> and the two-call split have no backend sign-off, and the download engine has never run against a real server.</li>
+      <li>Privileged install is unverified on a head unit. Only INSTALL_NEEDS_USER_ACTION has been seen on a bench, which is the correct unprivileged answer; the silent path needs the privapp allowlist for <code>com.lucid.appmanager</code> in the system image.</li>
       <li>When space is short, an app that is already downloaded is installed first (if its rules allow) and its APK deleted. An APK that has not been installed is never deleted to make space, except when a newer version of the same app replaces it.</li>
       <li>Vehicle state is the only gate for installs, apart from the manifest rules: driving is a strict no, parked is allowed. The service never asks apps what they are doing, so Navigation or music can stop when an update installs while parked. Tapping Update now counts as the user's consent, and the message appears when the install starts, with no countdown.</li>
       <li>Apps restart when updated, so app teams should save their own state.</li>
       <li>All numbers are placeholders: window 1 to 5 AM local time, auto needs WiFi of at least 2 Mbps, auto needs HV battery of at least 30% or charging, Update now needs at least 10% to download and 20% or charging to install, 12V minimum from the vehicle power team, free space of 2x the APK size, stall timeout 60 s, Park debounce 10 s.</li>
-      <li>Can the head unit wake at 1 AM (for example Garage Mode on Android Automotive)? If not, the automatic update runs in the first parked period after 1 AM instead.</li>
+      <li>Can the head unit wake at 02:00 (for example Garage Mode on Android Automotive)? If not, the run happens at the next opportunity after 02:00, which the 15 minute recheck already handles.</li>
       <li>Updates are per vehicle, not per profile. The service runs in the system user. Primary and secondary profiles can use Update now; guest is view-only.</li>
-      <li>Automatic downloads need a parked vehicle, WiFi, battery and storage. Automatic installs also need the 1 AM window, an idle vehicle (ignition off), and the app's install rules.</li>
+      <li>One run covers both halves: the download gate checks driving, battery, network and storage; the install gate re-reads driving and battery only. There is no separate install window.</li>
       <li>Decided 2026-10-12: cellular consent lives in Settings, not in the Update now flow. The "WiFi or cellular" option is shown only when the vehicle has a connectivity subscription; without one, downloads are WiFi only.</li>
     </ul>
   </div>
@@ -166,307 +161,236 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
   /* ---------- Participants ---------- */
   var PT={
     os:{n:'Android OS',s:'boot / connectivity'},
-    sched:{n:'Scheduler',s:'1 AM alarm or wake'},
+    sched:{n:'Scheduler',s:'daily_trigger 02:00'},
     hmi:{n:'HMI app',s:'vehicle UI'},
-    svc:{n:'Updater service',s:'orchestrator'},
-    pol:{n:'Policy engine',s:'window, network, battery'},
-    veh:{n:'Vehicle signals',s:'power, gear, battery'},
-    net:{n:'Connectivity',s:'Android network stack'},
-    db:{n:'Local store',s:'Room / SQLite'},
-    cloud:{n:'Cloud API',s:'boundary only'},
-    dl:{n:'Download manager',s:'foreground service'},
+    svc:{n:'AppManager service',s:'RunCoordinator'},
+    pol:{n:'Policy gate',s:'drive, batt, net, storage'},
+    veh:{n:'Vehicle signals',s:'ignition, gear, battery'},
+    db:{n:'RunStateStore',s:'DataStore'},
+    cloud:{n:'Cloud API',s:'catalogue + signed URL'},
+    dl:{n:'Download engine',s:'HttpDownloadEngine'},
+    vfy:{n:'Verifier',s:'size, parse, hash, signer'},
     pm:{n:'PackageManager',s:'Android framework'},
     pi:{n:'PackageInstaller',s:'Android framework'},
-    trig:{n:'System trigger',s:'boot, WiFi, timer'}
+    trig:{n:'System trigger',s:'boot, timer, AIDL'}
   };
 
   /* ---------- Sequence data ---------- */
   var SEQ=[
     {tab:'1 Startup and recovery',title:'Service startup and crash recovery',
-     blurb:'After a reboot or crash the service reloads its saved state, checks what really got installed, re-checks held updates, and sends any events that were still queued.',
-     parts:['os','svc','db','pm','cloud'],
+     blurb:'After a reboot or a process kill the service reloads its persisted RunState, reports what it found, and re-arms the daily trigger. A run that died mid-flight is not restarted from zero.',
+     parts:['os','svc','db','pm','sched'],
      msgs:[
-      {f:'os',t:'svc',x:'BOOT_COMPLETED: start the service'},
-      {f:'svc',t:'db',x:'Load update records, settings and event queue'},
-      {f:'db',t:'svc',x:'Records, including any DOWNLOADING, INSTALLING or HELD',r:1},
-      {f:'svc',t:'pm',x:'getPackageInfo(appId): installed versionCode'},
-      {f:'pm',t:'svc',x:'versionCode',r:1},
-      {f:'svc',t:'svc',x:'INSTALLING and versionCode equals target: mark INSTALLED. Otherwise retry the install.'},
-      {f:'svc',t:'svc',x:'DOWNLOADING: resume if the partial file is valid, else restart. HELD: run the checks again.'},
-      {f:'svc',t:'cloud',x:'POST queued events (batch)'},
-      {f:'cloud',t:'svc',x:'Accepted: clear sent events from the queue',r:1},
-      {note:'The periodic check and the 1 AM window are scheduled again.',a:'os',b:'cloud'}
+      {f:'os',t:'svc',x:'BOOT_COMPLETED'},
+      {f:'svc',t:'db',x:'Load RunState: phase, artifactId, apkPath, waitReason, progress'},
+      {f:'db',t:'svc',x:'Saved state, possibly RUNNING, WAITING or INSTALLING',r:1},
+      {f:'svc',t:'svc',x:'phase RUNNING: emit STATE_RESTORED and carry on from the saved progress'},
+      {f:'svc',t:'pm',x:'getPackageInfo(packageName): installed versionCode'},
+      {f:'pm',t:'svc',x:'versionCode (needs QUERY_ALL_PACKAGES)',r:1},
+      {f:'svc',t:'sched',x:'ensureScheduled(): re-arm daily_trigger for 02:00'},
+      {f:'svc',t:'sched',x:'phase WAITING: enqueue the 15 minute recheck'},
+      {note:'Without QUERY_ALL_PACKAGES getPackageInfo throws for every other package, and the up-to-date check, the post-install confirmation and the APK signer check all fail silently.',a:'os',b:'sched'}
      ]},
-    {tab:'2 Check for updates',title:'Check for updates',
-     blurb:'Only apps already installed are considered. Anything not newer than what is installed is dropped. A check can run on any network. Downloading is a separate decision.',
-     parts:['trig','svc','pol','db','cloud'],
+
+    {tab:'2 The nightly run',title:'One download_run, end to end',
+     blurb:'Five stages bracketed by two evaluations of the same policy gate. The catalogue is asked once; the APK URL is fetched as late as possible because it lives only 30 minutes.',
+     parts:['sched','svc','pol','cloud','dl','vfy','pi'],colW:178,
      msgs:[
-      {f:'trig',t:'svc',x:'Boot, WiFi connected or periodic timer'},
-      {f:'svc',t:'db',x:'Load settings, last check time, installed apps and versionCodes'},
-      {f:'db',t:'svc',x:'Settings and installed apps',r:1},
-      {f:'svc',t:'pol',x:'Is a check due?'},
-      {f:'pol',t:'svc',x:'Yes: network up and interval elapsed',r:1},
-      {f:'svc',t:'cloud',x:'GET /v1/manifest (mTLS, installed versionCodes)'},
-      {f:'cloud',t:'svc',x:'Signed manifest: update list per app (versionName, versionCode, size, installRules)',r:1},
-      {f:'svc',t:'svc',x:'Verify manifest signature. Drop apps not installed and versionCode not higher.'},
-      {f:'svc',t:'db',x:'Save updates as AVAILABLE with their installRules; queue event update_available'},
-      {note:'Automatic: the download starts whenever the checks pass, including parked; the install waits for the 1 AM window (diagram 3). Update now is always available from the HMI (diagram 4).',a:'trig',b:'cloud'}
+      {f:'sched',t:'svc',x:'02:00 daily_trigger fires, enqueues download_run (KEEP)'},
+      {f:'svc',t:'pol',x:'Gate: driving, battery, network'},
+      {f:'pol',t:'svc',x:'Allowed',r:1},
+      {f:'svc',t:'cloud',x:'1. Artifact check: what does the catalogue offer?'},
+      {f:'cloud',t:'svc',x:'Artifact list: packageName, versionCode, size, digest. No URL.',r:1},
+      {f:'svc',t:'svc',x:'Compare versionCode, never versionName. Installed >= offered ends as UP_TO_DATE.'},
+      {f:'svc',t:'pol',x:'Storage gate: artifact size + 10% must fit'},
+      {f:'pol',t:'svc',x:'Allowed',r:1},
+      {f:'svc',t:'cloud',x:'2. Fetch APK URL for this artifact'},
+      {f:'cloud',t:'svc',x:'Signed URL, expires in 30 minutes',r:1},
+      {f:'svc',t:'dl',x:'3. Download: Range resume into .part'},
+      {f:'dl',t:'svc',x:'Atomic rename on success',r:1},
+      {f:'svc',t:'vfy',x:'4. Verify: length, APK parse, SHA-256, signing certificate'},
+      {f:'vfy',t:'svc',x:'Ok. apkPath and artifactId persisted together.',r:1},
+      {f:'svc',t:'pol',x:'Install gate: fresh snapshot, driving and battery only'},
+      {f:'pol',t:'svc',x:'Allowed',r:1},
+      {f:'svc',t:'pi',x:'5. Install'},
+      {f:'pi',t:'svc',x:'INSTALL_SUCCEEDED (advisory)',r:1},
+      {f:'svc',t:'svc',x:'Re-read the installed versionCode. Only if it moved: INSTALL_COMPLETE, then DOWNLOAD_COMPLETE.'},
+      {note:'The gate is evaluated twice from two different snapshots. A large APK on a slow link takes hours, so the decision taken before the download is stale by install time.',a:'sched',b:'pi'}
      ]},
-    {tab:'3 Auto update',title:'Automatic update: download any time, install at 1 AM',
-     blurb:'Downloads are not tied to the time of day but need a parked vehicle; they pause while driving. The install is gated further: the 1 AM window, an idle vehicle, and the app installRules from the manifest.',
-     parts:['sched','svc','veh','pol','cloud','dl','pi'],colW:185,
+
+    {tab:'3 Blocked at the gate',title:'Blocked, waiting, and the recheck',
+     blurb:'Four rules in a fixed order, first failure wins. A block persists WAITING with the reason and schedules a recheck 15 minutes out. Coming back, the gate has to stay open for 10 continuous seconds.',
+     parts:['svc','veh','pol','db','sched'],
      msgs:[
-      {note:'Phase 1: download (any time the vehicle is parked)'},
-      {f:'svc',t:'pol',x:'Auto ON, parked, WiFi validated and not metered, battery above floor, enough storage?'},
-      {f:'pol',t:'svc',x:'Yes',r:1},
-      {f:'svc',t:'cloud',x:'GET /v1/manifestapks (appId, versionCode)'},
-      {f:'cloud',t:'svc',x:'Signed URL, SHA-256, size',r:1},
-      {f:'svc',t:'dl',x:'Download in the background (resume with Range)'},
-      {f:'dl',t:'svc',x:'APK in staging folder',r:1},
-      {f:'svc',t:'svc',x:'Verify size, SHA-256, signing cert, versionCode. State READY, waiting for the install window.'},
-      {note:'Phase 2: install (1 AM window)'},
-      {f:'sched',t:'svc',x:'1:00 AM: window opens (alarm, or garage-mode wake)'},
-      {f:'svc',t:'veh',x:'Read ignition, gear, vehicle mode, battery, charging'},
-      {f:'veh',t:'svc',x:'Parked, ignition off, HV 64%, 12V OK',r:1},
-      {f:'svc',t:'pol',x:'Install allowed? Baseline (parked, battery) plus the app installRules'},
-      {f:'pol',t:'svc',x:'Yes, for the first READY app',r:1},
-      {f:'svc',t:'pi',x:'Commit install session (no user action)'},
-      {f:'pi',t:'svc',x:'SUCCESS',r:1},
-      {f:'svc',t:'svc',x:'Save INSTALLED, delete the staged APK, take the next READY app. Stop when the window closes at 5 AM.'},
-      {f:'svc',t:'cloud',x:'Send lifecycle events (batch)'},
-      {note:'No HMI message at night. At the next ignition-on the HMI shows one line: "Media updated to 4.1.0".'}
+      {f:'svc',t:'veh',x:'Snapshot: ignition, gear, speed, battery, network, free space'},
+      {f:'veh',t:'svc',x:'DRIVING, 90%, unmetered WiFi',r:1},
+      {f:'svc',t:'pol',x:'Evaluate driving, battery, network, storage'},
+      {f:'pol',t:'svc',x:'Blocked: DRIVING (first failure wins)',r:1},
+      {f:'svc',t:'db',x:'phase WAITING, waitReason DRIVING. Partial bytes kept.'},
+      {f:'svc',t:'sched',x:'enqueueRecheck(15 min)'},
+      {note:'A recheck that finds the same reason still failing logs RECHECK_STILL_BLOCKED instead of repeating BLOCKED_DRIVING, so a long wait does not flood the log.'},
+      {f:'veh',t:'svc',x:'Ignition on, gear in Park'},
+      {f:'svc',t:'pol',x:'Re-evaluate, then hold the result for 10 seconds'},
+      {f:'pol',t:'svc',x:'Still open after 10 s: proceed',r:1},
+      {note:'A signal that flaps, such as a car rolling a metre in a parking space, re-blocks rather than starting a download it is about to have to pause.',a:'svc',b:'sched'}
      ]},
-    {tab:'4 Update now',title:'Update now (user taps Update now)',
-     blurb:'Pre-flight checks run first. Neither download nor install runs while driving; the install has further rules. Any primary or secondary profile can start it, and it updates the whole vehicle.',
-     parts:['hmi','svc','veh','pol','cloud','dl','pi'],colW:185,
+
+    {tab:'4 Paused mid-download',title:'A signal goes bad during the download',
+     blurb:'While the engine runs, a watcher re-evaluates the whole gate on every device-state change. Any rule failing cancels the engine; the .part file survives, so the next attempt resumes from the saved offset.',
+     parts:['veh','svc','pol','dl','db'],
      msgs:[
-      {f:'hmi',t:'svc',x:'updateNow(appId) (manual)'},
-      {f:'svc',t:'svc',x:'Caller check: the HMI app, from a primary or secondary profile. The service runs in the system user, so the update applies to the whole vehicle.'},
-      {f:'svc',t:'veh',x:'Read gear, battery, charging'},
-      {f:'veh',t:'svc',x:'Parked, HV 64%',r:1},
-      {f:'svc',t:'pol',x:'Pre-flight: network, battery, storage, driving'},
-      {f:'pol',t:'svc',x:'Download OK. Install OK now.',r:1},
-      {f:'svc',t:'hmi',x:'onStateChanged(DOWNLOADING)',r:1},
-      {f:'svc',t:'cloud',x:'GET /v1/manifestapks'},
-      {f:'cloud',t:'svc',x:'URL, SHA-256, size',r:1},
-      {f:'svc',t:'dl',x:'Download (any validated network)'},
-      {f:'dl',t:'svc',x:'Progress, then complete',r:1},
-      {f:'svc',t:'hmi',x:'onProgress(appId, percent)',r:1},
-      {f:'svc',t:'svc',x:'Verify. Read the gear and mode again: install only if parked and the app installRules allow it.'},
-      {f:'svc',t:'hmi',x:'onStateChanged(INSTALLING): HMI shows "Updating Media. It will restart."',r:1},
-      {f:'svc',t:'pi',x:'Commit install session'},
-      {f:'pi',t:'svc',x:'SUCCESS',r:1},
-      {f:'svc',t:'hmi',x:'onStateChanged(INSTALLED)',r:1},
-      {f:'svc',t:'cloud',x:'Send lifecycle events (batch)'},
-      {note:'If a check fails, the update is HELD with a reason (driving, install rule, low battery, poor network) and the HMI says why. The diagrams under Conditions that change show each case.',a:'hmi',b:'pi'}
+      {f:'dl',t:'svc',x:'DOWNLOAD_PROGRESS, at most once a second'},
+      {f:'veh',t:'svc',x:'Gear to Drive'},
+      {f:'svc',t:'pol',x:'Re-evaluate the gate on the state change'},
+      {f:'pol',t:'svc',x:'Blocked: DRIVING',r:1},
+      {f:'svc',t:'dl',x:'Cancel the engine coroutine. Cancellation means pause, not discard.'},
+      {f:'svc',t:'db',x:'phase WAITING, waitReason DRIVING, progress kept'},
+      {note:'PAUSED_DRIVING. The .part file is left exactly as it is.'},
+      {f:'veh',t:'svc',x:'Park, stable for 10 seconds'},
+      {f:'svc',t:'dl',x:'download() again: Range from the saved offset, If-Range to police it'},
+      {f:'dl',t:'svc',x:'206 Partial Content, Content-Range matches the offset',r:1},
+      {note:'A server that ignores the range answers 200; the engine then deletes the .part, emits RESTARTED_FROM_ZERO and starts again rather than appending to the wrong offset.',a:'veh',b:'db'}
      ]},
-    {tab:'5 Driving: auto update',title:'The car is driven during an automatic update',
-     blurb:'Driving blocks both download and install. A download pauses and resumes after Park for 10 seconds. Nothing installs while driving, and a commit that has already started is allowed to finish.',
+
+    {tab:'5 Install blocked, then resumed',title:'Parked again: install without downloading twice',
+     blurb:'This is why downloading and installing are separate halves. A verified APK on disk means the download half is already done, and the recheck re-enters at the install gate.',
+     parts:['svc','pol','db','cloud','pi'],
+     msgs:[
+      {f:'svc',t:'pol',x:'Install gate, fresh snapshot'},
+      {f:'pol',t:'svc',x:'Blocked: DRIVING',r:1},
+      {f:'svc',t:'db',x:'phase WAITING, apkPath kept, artifactId kept'},
+      {note:'The verified APK stays on disk. Nothing is deleted.'},
+      {f:'svc',t:'cloud',x:'Recheck 15 min later: artifact check runs again'},
+      {f:'cloud',t:'svc',x:'Same artifact still offered',r:1},
+      {f:'svc',t:'db',x:'apkPath exists AND artifactId matches?'},
+      {f:'db',t:'svc',x:'Yes: STATE_RESTORED',r:1},
+      {f:'svc',t:'pi',x:'Skip the storage gate, the URL, the download and verification. Install.'},
+      {note:'If the catalogue has moved to a newer version, artifactId no longer matches: the staged APK is deleted and RESTARTED_FROM_ZERO is emitted. Reusing it would install the wrong version.',a:'svc',b:'pi'}
+     ]},
+
+    {tab:'6 Verification fails',title:'The bytes arrived, but they are wrong',
+     blurb:'Four checks, cheapest first, so a truncated file costs a length() call instead of hashing several hundred megabytes. Any failure retries the whole download once, then stops.',
+     parts:['dl','svc','vfy','db'],
+     msgs:[
+      {f:'dl',t:'svc',x:'Download complete'},
+      {f:'svc',t:'vfy',x:'1 byte length against sizeBytes'},
+      {f:'svc',t:'vfy',x:'2 does it parse as an APK'},
+      {f:'svc',t:'vfy',x:'3 SHA-256 against digest'},
+      {f:'svc',t:'vfy',x:'4 signing certificate against the installed copy'},
+      {f:'vfy',t:'svc',x:'Failed: DIGEST',r:1},
+      {f:'svc',t:'db',x:'Delete the file, emit VERIFY_FAILED, attempt 1 of 2'},
+      {f:'svc',t:'dl',x:'Download again from scratch'},
+      {f:'vfy',t:'svc',x:'Failed: DIGEST again',r:1},
+      {f:'svc',t:'db',x:'DOWNLOAD_FAILED: verification failed twice'},
+      {note:'The signer check is the one that matters. A digest only proves the bytes arrived intact; it says nothing about who built them, and whoever can serve an APK can serve its hash. A first install has nothing to compare against: allowed, and logged.',a:'dl',b:'db'}
+     ]},
+
+    {tab:'7 URL expires mid-download',title:'The signed URL ages out while bytes are moving',
+     blurb:'A 30-minute URL against a multi-hundred-megabyte download makes expiry the expected case, not an error. The engine re-fetches and carries on without the download noticing.',
+     parts:['svc','dl','cloud'],
+     msgs:[
+      {f:'dl',t:'cloud',x:'GET the APK, Range from the offset'},
+      {f:'dl',t:'dl',x:'Under 60 seconds left on the clock: re-fetch before reading further'},
+      {f:'dl',t:'cloud',x:'Fetch a fresh signed URL for the same artifactId'},
+      {f:'cloud',t:'dl',x:'New URL, new 30 minute expiry. URL_REFRESHED.',r:1},
+      {f:'dl',t:'cloud',x:'Resume from the same byte offset'},
+      {note:'A 401 or 403 is read as expiry rather than an authorization failure: against a 30 minute signature that is overwhelmingly what it means. The engine re-fetches and retries.'},
+      {f:'dl',t:'svc',x:'Past 3 re-fetches in one run: URL_REFRESH_EXHAUSTED, DOWNLOAD_FAILED',r:1},
+      {note:'The bound exists so an endlessly rejecting server fails the run instead of being retried forever.',a:'svc',b:'cloud'}
+     ]},
+
+    {tab:'8 The two install paths',title:'PACKAGE_MANAGER and APK_OVERRIDE',
+     blurb:'Which path runs is a feature flag, named in the INSTALL_STARTED message. Path A is the production answer; path B exists for a userdebug bench where the app is not privileged.',
+     parts:['svc','pi','pm','db'],
+     msgs:[
+      {note:'Path A: PACKAGE_MANAGER (default)'},
+      {f:'svc',t:'pi',x:'createSession, write base.apk, commit with a PendingIntent'},
+      {f:'pi',t:'svc',x:'INSTALL_SUCCEEDED',r:1},
+      {f:'svc',t:'pm',x:'Re-read the installed versionCode'},
+      {f:'pm',t:'svc',x:'Moved to the target: INSTALL_COMPLETE',r:1},
+      {note:'The platform answer is advisory; the device is authoritative. A reported success with an unchanged version is a failure. STATUS_PENDING_USER_ACTION means USER_ACTION_NOT_REQUIRED was refused, which in practice means the app is not privileged.'},
+      {note:'Path B: APK_OVERRIDE (bench only)'},
+      {f:'svc',t:'db',x:'Copy the APK to files/override/<packageName>.apk, record BOOT_COUNT'},
+      {f:'svc',t:'svc',x:'OVERRIDE_STAGED. Nothing is installed.'},
+      {note:'Replacing a preloaded APK needs root and verity off, so the apply is an adb push to /product/priv-app and takes effect at the next reboot.'},
+      {f:'svc',t:'db',x:'After the reboot: compare BOOT_COUNT against the staged value'},
+      {f:'db',t:'svc',x:'Higher: OVERRIDE_APPLIED. Same: OVERRIDE_NOT_APPLIED.',r:1}
+     ]},
+
+    {tab:'9 Update now',title:'Update now (the user taps it)',
+     blurb:'The same pipeline, started by hand through AIDL instead of by the scheduler. The gates are identical; only the trigger and the HMI feedback differ.',
+     parts:['hmi','svc','pol','cloud','dl','pi'],colW:190,
+     msgs:[
+      {f:'hmi',t:'svc',x:'startDownload(packageName) over IAppManagerDownloadService'},
+      {f:'svc',t:'svc',x:'Binding needs BIND_DOWNLOAD_SERVICE (signature|privileged)'},
+      {f:'svc',t:'pol',x:'The same gate as the nightly run'},
+      {f:'pol',t:'svc',x:'Blocked: DRIVING',r:1},
+      {f:'svc',t:'hmi',x:'onStatusChanged: state and the three-word status',r:1},
+      {note:'The HMI shows a row with four fields only: icon, title, version, state. A failure reason never reaches a row.',a:'hmi',b:'pi'},
+      {f:'hmi',t:'svc',x:'Parked. The run proceeds.'},
+      {f:'svc',t:'cloud',x:'Artifact check, then fetch the APK URL'},
+      {f:'svc',t:'dl',x:'Download, then verify'},
+      {f:'svc',t:'pi',x:'Install once the install gate opens'},
+      {f:'svc',t:'hmi',x:'onEvent: one formatted line per service event',r:1},
+      {note:'There is no second code path. Update now uses enqueueRunNow (REPLACE) where the scheduler uses KEEP, so a manual tap wins over a run already pending.',a:'hmi',b:'pi'}
+     ]},
+
+    {tab:'10 Driving during an update',title:'The car is driven while an update is in flight',
+     blurb:'Driving blocks both download and install. A download pauses and resumes after Park for 10 seconds. A commit that has already started is allowed to finish.',
      parts:['veh','svc','dl','db','pi','hmi'],
      msgs:[
-      {note:'Case A: driving starts while an update is downloading'},
-      {f:'veh',t:'svc',x:'Ignition on, then gear to Drive'},
-      {f:'svc',t:'dl',x:'Pause the download; keep the partial file and offset'},
-      {f:'svc',t:'db',x:'State HELD (driving); queue update_held'},
-      {f:'veh',t:'svc',x:'Gear in Park for 10 seconds'},
-      {f:'svc',t:'dl',x:'Resume from the saved offset; queue update_resumed'},
-      {note:'Case B: driving starts during the 1 AM window, before the install'},
-      {f:'svc',t:'veh',x:'Read the gear just before the install'},
-      {f:'veh',t:'svc',x:'Drive',r:1},
-      {f:'svc',t:'db',x:'State HELD (driving); queue update_held. Nothing installs.'},
-      {note:'No HMI message. The install is tried again in the next 1 AM window.'},
-      {note:'Case C: the car is started while the install commit is running'},
-      {f:'svc',t:'pi',x:'Commit install session (checks passed, car parked)'},
+      {note:'Case A: driving starts while the download is running'},
+      {f:'veh',t:'svc',x:'Gear to Drive'},
+      {f:'svc',t:'dl',x:'Cancel the engine; the .part file and offset are kept'},
+      {f:'svc',t:'db',x:'phase WAITING, waitReason DRIVING. PAUSED_DRIVING.'},
+      {f:'veh',t:'svc',x:'Park, stable for 10 seconds'},
+      {f:'svc',t:'dl',x:'RESUMED from the saved offset'},
+      {note:'Case B: driving starts after verification, before the install'},
+      {f:'svc',t:'veh',x:'Fresh snapshot at the install gate'},
+      {f:'veh',t:'svc',x:'DRIVING',r:1},
+      {f:'svc',t:'db',x:'phase WAITING. The verified APK stays on disk.'},
+      {note:'The next recheck re-enters at the install gate and skips the download half entirely. Nothing is downloaded twice.'},
+      {note:'Case C: the car is started while the commit is running'},
+      {f:'svc',t:'pi',x:'Commit already in flight'},
       {f:'veh',t:'svc',x:'Ignition on during the commit'},
-      {f:'svc',t:'hmi',x:'onStateChanged(INSTALLING)',r:1},
       {f:'pi',t:'svc',x:'SUCCESS',r:1},
-      {f:'svc',t:'db',x:'State INSTALLED; save the new versionCode; queue install_success'},
-      {f:'svc',t:'hmi',x:'onStateChanged(INSTALLED)',r:1},
-      {note:'HMI: "Updating Media. It will restart." until the install finishes, then "Media updated to 4.1.0". The commit is never stopped. It takes seconds and finishes safely.'}
+      {f:'svc',t:'hmi',x:'Installed',r:1},
+      {note:'A running commit is never interrupted. It takes seconds and finishes safely.',a:'veh',b:'hmi'}
      ]},
-    {tab:'6 Driving: Update now',title:'The user starts driving during Update now',
-     blurb:'Rule: no download and no install while driving, with no exceptions. Both wait for the gear to be in Park for 10 seconds.',
-     parts:['hmi','svc','veh','dl','pi'],
+
+    {tab:'11 Several apps in one run',title:'Multiple artifacts (designed, not yet built)',
+     blurb:'FR-58, approved and specified but not implemented: the service still handles one artifact per run. Step through it in docs/event-flow.html with the Artifacts control.',
+     parts:['svc','cloud','pol','dl','pi'],
      msgs:[
-      {note:'If the user taps Update now while already driving, the HMI says "Update starts when you park." Nothing downloads until then.',a:'hmi',b:'pi'},
-      {f:'hmi',t:'svc',x:'updateNow(appId)'},
-      {f:'svc',t:'dl',x:'Start download'},
-      {note:'Case A: driving starts during the download',a:'hmi',b:'pi'},
-      {f:'veh',t:'svc',x:'Gear changes to Drive'},
-      {f:'svc',t:'dl',x:'Pause the download; keep the partial file and offset'},
-      {f:'svc',t:'svc',x:'State HELD (driving); queue update_held.'},
-      {f:'svc',t:'hmi',x:'onStateChanged(HELD, driving)',r:1},
-      {note:'HMI while driving: one glance-only line, "Paused. Continues when you park." No buttons that need attention.',a:'hmi',b:'svc'},
-      {f:'veh',t:'svc',x:'Gear in Park for 10 seconds'},
-      {f:'svc',t:'dl',x:'Resume from the saved offset; queue update_resumed'},
-      {f:'dl',t:'svc',x:'Download complete',r:1},
-      {f:'svc',t:'svc',x:'Verify. State READY.'},
-      {note:'Case B: driving starts again at the last moment before the install',a:'hmi',b:'pi'},
-      {f:'veh',t:'svc',x:'Gear in Park for 10 seconds'},
-      {f:'svc',t:'svc',x:'Run the checks again: battery, network, installRules. Queue update_resumed.'},
-      {f:'svc',t:'veh',x:'Read the gear just before the install'},
-      {f:'veh',t:'svc',x:'Drive',r:1},
-      {f:'svc',t:'hmi',x:'onStateChanged(HELD, driving)',r:1},
-      {note:'Back to waiting for Park. Nothing installs.',a:'hmi',b:'svc'},
-      {note:'Case C: driving starts while the install commit is running',a:'hmi',b:'pi'},
-      {f:'veh',t:'svc',x:'Gear in Park for 10 seconds again; checks pass'},
-      {f:'svc',t:'hmi',x:'onStateChanged(INSTALLING): HMI shows "Updating Media. It will restart."',r:1},
-      {f:'svc',t:'pi',x:'Commit install session'},
-      {f:'veh',t:'svc',x:'Gear changes to Drive during the commit'},
-      {f:'pi',t:'svc',x:'SUCCESS',r:1},
-      {f:'svc',t:'hmi',x:'onStateChanged(INSTALLED)',r:1},
-      {note:'The commit is never stopped. It takes seconds and finishes safely. The message stays until the install is done.',a:'hmi',b:'pi'}
+      {f:'svc',t:'cloud',x:'Artifact check, ONCE for the whole run'},
+      {f:'cloud',t:'svc',x:'Everything offered; anything already current is reported UP_TO_DATE here',r:1},
+      {note:'The catalogue is not asked again. Stages 2 to 5 then repeat per artifact, serially.'},
+      {f:'svc',t:'pol',x:'Per artifact: storage gate, then its own URL'},
+      {f:'svc',t:'dl',x:'Download and verify this artifact'},
+      {f:'svc',t:'pol',x:'Install gate, per artifact'},
+      {f:'svc',t:'pi',x:'Install, then move to the next artifact'},
+      {note:'URLs are fetched per artifact, immediately before its own download. Fetching them all up front would start three 30 minute clocks at once and the third would expire before its turn.'},
+      {note:'A failed artifact is recorded and the run carries on: one bad APK on the server does not cost the other apps their update. A policy block is different, and suspends the whole run with the queue persisted.'},
+      {f:'svc',t:'svc',x:'DOWNLOAD_COMPLETE once, with a summary: 2 of 3 installed'}
      ]},
-    {tab:'7 Low battery',title:'Update now: low battery',
-     blurb:'Downloading uses little power, so it is allowed above a low floor. The install needs a higher minimum, or a charger connected.',
-     parts:['hmi','svc','veh','dl','pi'],
+
+    {tab:'12 Failure and retry',title:'What retries, and what gives up',
+     blurb:'Transient problems retry with backoff. Problems that will not fix themselves stop, so the run does not loop against a broken server.',
+     parts:['svc','cloud','dl','sched','db'],
      msgs:[
-      {f:'hmi',t:'svc',x:'updateNow(appId)'},
-      {f:'svc',t:'veh',x:'Read HV battery, 12V, charging'},
-      {f:'veh',t:'svc',x:'HV 18%, not charging',r:1},
-      {f:'svc',t:'svc',x:'Above the download floor (10%) but below the install minimum (20%)'},
-      {f:'svc',t:'dl',x:'Download and verify as normal'},
-      {f:'dl',t:'svc',x:'APK verified',r:1},
-      {f:'svc',t:'hmi',x:'onStateChanged(HELD, low_battery)',r:1},
-      {note:'HMI: "Battery is low. Charge above 20% to finish the update."',a:'hmi',b:'svc'},
-      {f:'veh',t:'svc',x:'Charging started, HV 22%'},
-      {f:'svc',t:'svc',x:'Checks pass. Queue update_resumed.'},
-      {f:'svc',t:'hmi',x:'onStateChanged(INSTALLING): HMI shows "Updating Media. It will restart."',r:1},
-      {f:'svc',t:'pi',x:'Commit install session'},
-      {f:'pi',t:'svc',x:'SUCCESS',r:1},
-      {f:'svc',t:'hmi',x:'onStateChanged(INSTALLED)',r:1},
-      {note:'Below 10% nothing starts. If the battery falls under the floor during a download, the download pauses and resumes later. A commit that has started is never stopped. With ignition off, the 12V voltage must also stay above its minimum.',a:'hmi',b:'pi'}
-     ]},
-    {tab:'8 Slow or public WiFi',title:'Update now: slow or public WiFi',
-     blurb:'The update continues on slow links, shows an estimate, and pauses and resumes if the link stalls. The network is never trusted: the APK is protected by signatures and hashes.',
-     parts:['hmi','svc','net','dl','cloud','db'],
-     msgs:[
-      {f:'hmi',t:'svc',x:'updateNow(appId)'},
-      {f:'svc',t:'net',x:'Active network: validated? metered? captive portal? speed?'},
-      {f:'net',t:'svc',x:'Public WiFi, validated, about 0.8 Mbps',r:1},
-      {note:'Captive portal (login page) or no internet counts as no network. HMI: "Connect to the internet to update." Cellular is used only when the Settings option is on, which needs a connectivity subscription; there is no prompt here. Metered hotspots are never used; Bluetooth PAN is not a supported transport at all.',a:'hmi',b:'net'},
-      {f:'svc',t:'svc',x:'Usable but slow: 25 MB at 0.8 Mbps is about 4 min'},
-      {f:'svc',t:'hmi',x:'onProgress(percent, about 4 min left)',r:1},
-      {f:'svc',t:'cloud',x:'GET /v1/manifestapks'},
-      {f:'cloud',t:'svc',x:'Signed URL, SHA-256, size',r:1},
-      {f:'svc',t:'dl',x:'Download with Range over the slow link'},
-      {f:'dl',t:'svc',x:'No bytes for 60 s (stalled)'},
-      {f:'svc',t:'db',x:'Pause: keep the partial file and offset'},
-      {f:'svc',t:'hmi',x:'onStateChanged(WAITING_FOR_NETWORK)',r:1},
-      {f:'net',t:'svc',x:'Network recovered or changed'},
-      {f:'svc',t:'dl',x:'Resume from the saved offset'},
-      {f:'dl',t:'svc',x:'Download complete',r:1},
-      {note:'Public WiFi is untrusted, so safety does not depend on the network. mTLS, the signed manifest, SHA-256 and the signing cert check protect the APK.',a:'svc',b:'db'},
-      {f:'svc',t:'svc',x:'Verify, then install as usual'}
-     ]},
-    {tab:'9 Night auto failures',title:'Failure and retry: automatic update',
-     blurb:'Nobody is waiting, so the service retries quietly. Download failures retry with backoff at any time. Install failures wait for the next 1 AM window.',
-     parts:['veh','svc','dl','db','pi','cloud'],
-     msgs:[
-      {note:'Case A: the network drops during a download'},
-      {f:'dl',t:'svc',x:'WiFi drops or speed falls below the minimum'},
-      {f:'svc',t:'db',x:'State FAILED (download), attempt +1, next retry time'},
-      {note:'Retry after 15 min, then 45 min, then hourly, resuming at the saved byte.'},
-      {f:'svc',t:'dl',x:'Resume from the saved offset'},
-      {f:'dl',t:'svc',x:'Download complete',r:1},
-      {note:'Case B: the download is corrupt'},
-      {f:'svc',t:'svc',x:'SHA-256 mismatch: delete the file, request /v1/manifestapks again, restart (max 3 times)'},
-      {note:'Case C: the car wakes up during the install window'},
-      {f:'veh',t:'svc',x:'Door opens or ignition on'},
-      {f:'svc',t:'db',x:'READY updates stay HELD (vehicle_active); queue update_held'},
-      {note:'Installs are tried again in the next window. Downloads carry on unless the vehicle is driven.'},
-      {note:'Case D: the install fails'},
-      {f:'svc',t:'pi',x:'Commit install session'},
-      {f:'pi',t:'svc',x:'FAILURE (for example signature or downgrade error)',r:1},
-      {f:'svc',t:'db',x:'State FAILED (install); keep the reason code'},
-      {f:'svc',t:'cloud',x:'Event install_failed (reason, stage, attempts, auto_night)'},
-      {note:'Permanent failures (signature mismatch, downgrade) do not retry. The old version stays installed and works. After 3 failed nights the HMI shows the update so the user can try Update now.'},
-      {note:'Case E: the window closes (5 AM) before every app is installed'},
-      {f:'svc',t:'db',x:'Remaining apps stay READY (outside_window); queue update_held'},
-      {note:'They are installed in the next window. Nothing is deleted.'}
-     ]},
-    {tab:'10 Update now failures',title:'Failure and retry: Update now',
-     blurb:'The user is waiting, so the HMI shows each step, retries a few times, then offers Try again.',
-     parts:['hmi','svc','dl','pi','db','cloud'],
-     msgs:[
-      {note:'Case A: the network drops or stalls',a:'hmi',b:'cloud'},
-      {f:'dl',t:'svc',x:'Network lost or stalled (no bytes for 60 s)'},
-      {f:'svc',t:'db',x:'State FAILED (download), attempt 1'},
-      {f:'svc',t:'hmi',x:'onStateChanged(RETRYING, connection lost)',r:1},
-      {note:'HMI: "Connection lost. Retrying..." Backoff 1 min, 5 min, 15 min, resuming at the saved byte.',a:'hmi',b:'cloud'},
-      {f:'svc',t:'hmi',x:'onStateChanged(FAILED, network) after 3 attempts',r:1},
-      {note:'HMI: "Could not update Media. Try again." The old version still works.',a:'hmi',b:'cloud'},
-      {f:'hmi',t:'svc',x:'updateNow(appId): the user taps Try again (attempts reset)'},
-      {note:'Case B: the download is corrupt',a:'hmi',b:'cloud'},
-      {f:'svc',t:'svc',x:'SHA-256 mismatch: delete the file, request /v1/manifestapks again, restart (max 3 times)'},
-      {f:'svc',t:'hmi',x:'onStateChanged(FAILED, verify) if all 3 fail',r:1},
-      {note:'Case C: the install fails',a:'hmi',b:'cloud'},
-      {f:'svc',t:'pi',x:'Commit install session'},
-      {f:'pi',t:'svc',x:'FAILURE (signature, downgrade, storage)',r:1},
-      {f:'svc',t:'db',x:'State FAILED (install); keep the reason code'},
-      {f:'svc',t:'hmi',x:'onStateChanged(FAILED, install)',r:1},
-      {f:'svc',t:'cloud',x:'Event install_failed (reason, stage, attempts, update_now)'},
-      {note:'A failed install leaves the old version in place. Permanent failures (signature, downgrade) show "Update not available" and do not offer Try again until a new manifest arrives.',a:'hmi',b:'cloud'}
-     ]},
-    {tab:'11 Per-app install rules',title:'Per-app install rules from the manifest',
-     blurb:'The Release Manager sets when each app may be installed. Rules travel in the signed manifest and are saved with the update. They gate only the install; downloads are gated by vehicle state, network, battery and storage, never by manifest rules. Evaluated in the 1 AM window (auto) or after an Update now download.',
-     parts:['svc','db','veh','pol','hmi','pi'],colW:185,
-     msgs:[
-      {f:'svc',t:'db',x:'Load READY updates and their installRules (saved from /v1/manifest)'},
-      {f:'db',t:'svc',x:'Media: no extra rules. Navigation: not in egress mode.',r:1},
-      {f:'svc',t:'veh',x:'Read gear, ignition, vehicle mode'},
-      {f:'veh',t:'svc',x:'Parked, vehicle mode: egress',r:1},
-      {f:'svc',t:'pol',x:'Per app: baseline (no install while driving) plus its installRules'},
-      {f:'pol',t:'svc',x:'Media: allowed. Navigation: blocked (egress mode).',r:1},
-      {note:'Media installs as normal'},
-      {f:'svc',t:'hmi',x:'onStateChanged(INSTALLING, Media)',r:1},
-      {f:'svc',t:'pi',x:'Commit install session (Media)'},
-      {f:'pi',t:'svc',x:'SUCCESS',r:1},
-      {f:'svc',t:'db',x:'Media INSTALLED; delete its staged APK. Navigation stays HELD (install_rule: egress mode); queue update_held.'},
-      {note:'Navigation is not installed while the vehicle is in egress mode. Other apps are not affected. Update now: the HMI says "Navigation installs when the vehicle leaves egress mode."'},
-      {note:'Later: the vehicle leaves egress mode'},
-      {f:'veh',t:'svc',x:'Vehicle mode changes: egress mode ends'},
-      {f:'svc',t:'pol',x:'Check Navigation again (baseline and its installRules)'},
-      {f:'pol',t:'svc',x:'Allowed',r:1},
-      {f:'svc',t:'hmi',x:'onStateChanged(INSTALLING, Navigation)',r:1},
-      {f:'svc',t:'pi',x:'Commit install session (Navigation)'},
-      {f:'pi',t:'svc',x:'SUCCESS',r:1},
-      {f:'svc',t:'db',x:'Navigation INSTALLED; delete its staged APK; queue update_resumed and install_success'},
-      {note:'Rules can only add limits. The manifest cannot loosen the driving rule. An app with no installRules follows the baseline only. Rules saved on the vehicle work offline, and a newer manifest replaces them.'}
-     ]},
-    {tab:'12 Low storage: install first',title:'Not enough space: install the downloaded app first',
-     blurb:'Staged APKs take space. If the next download does not fit, the service installs an app that is already downloaded (when its rules allow), deletes its APK, and then downloads. An APK that has not been installed is never deleted to make space.',
-     parts:['svc','db','pol','pi','cloud','dl'],colW:185,
-     msgs:[
-      {note:'Case A: a downloaded app can install now'},
-      {f:'svc',t:'db',x:'Next to download: Spotify (20 MB). Load staged APKs.'},
-      {f:'db',t:'svc',x:'Staged: Media APK (25 MB), state READY',r:1},
-      {f:'svc',t:'svc',x:'Free space 18 MB. Needs 2x the APK size = 40 MB. Not enough.'},
-      {f:'svc',t:'pol',x:'Can Media install now? (baseline and its installRules)'},
-      {f:'pol',t:'svc',x:'Yes: parked, no blocking rule',r:1},
-      {f:'svc',t:'pi',x:'Commit install session (Media)'},
-      {f:'pi',t:'svc',x:'SUCCESS',r:1},
-      {f:'svc',t:'db',x:'Media INSTALLED. Delete the staged Media APK.'},
-      {f:'svc',t:'svc',x:'Free space now 43 MB. Enough for Spotify.'},
-      {f:'svc',t:'cloud',x:'GET /v1/manifestapks (Spotify)'},
-      {f:'cloud',t:'svc',x:'Signed URL, SHA-256, size',r:1},
-      {f:'svc',t:'dl',x:'Download Spotify'},
-      {note:'Case B: the downloaded app cannot install now'},
-      {f:'svc',t:'pol',x:'Can Media install now?'},
-      {f:'pol',t:'svc',x:'No: driving, or an install rule blocks it',r:1},
-      {f:'svc',t:'db',x:'Spotify: HELD (low_storage). Keep the staged Media APK. Queue update_held.'},
-      {note:'The Spotify download resumes when Media installs and frees space. Update now: the HMI says "Not enough storage".'},
-      {note:'Case C: still not enough after the install'},
-      {f:'svc',t:'db',x:'Spotify: HELD (low_storage); event update_held'},
-      {note:'Also cleaned up: an APK replaced by a newer version of the same app is deleted, and every APK is deleted right after a successful install.'}
+      {f:'svc',t:'cloud',x:'Artifact check'},
+      {f:'cloud',t:'svc',x:'Timeout, DNS failure or 5xx',r:1},
+      {f:'svc',t:'db',x:'Treated as a NETWORK block with the cause, not an uncaught exception'},
+      {f:'svc',t:'sched',x:'Wait and recheck in 15 minutes'},
+      {note:'Previously this threw straight out of the coordinator: no event emitted, no state written, the run simply vanished.'},
+      {f:'dl',t:'svc',x:'HTTP 5xx or 429 during the download',r:1},
+      {f:'svc',t:'dl',x:'Retry up to 5 attempts, backing off 30 s to 15 min, resuming at the saved byte'},
+      {f:'dl',t:'svc',x:'HTTP 404',r:1},
+      {f:'svc',t:'db',x:'Fatal. No amount of retrying fixes an artifact that is not there.'},
+      {note:'Verification failures retry the whole download once. Two independent failures mean the source is wrong, not the wire, so the run stops. A system stop from WorkManager keeps progress and rechecks immediately.',a:'svc',b:'db'}
      ]}
   ];
-  var GROUPS=[
-    {label:'Normal flows',idx:[0,1,2,3]},
-    {label:'Conditions that change',idx:[4,5,6,7]},
-    {label:'Failure and retry',idx:[8,9]},
-    {label:'Manifest rules and storage',idx:[10,11]}
-  ];
+
   var AIU={title:'Update now when parked: the install message',
     blurb:'Vehicle state is the only gate. The service does not talk to individual apps. When parked, it installs and the HMI shows a message.',
     parts:['hmi','svc','veh','pi'],colW:230,
@@ -483,7 +407,7 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
       {f:'pi',t:'svc',x:'SUCCESS',r:1},
       {f:'svc',t:'hmi',x:'onStateChanged(INSTALLED)',r:1},
       {note:'HMI message: "Media updated to 4.1.0".',a:'hmi',b:'pi'},
-      {note:'If the second gear read says Driving, the update is HELD and nothing installs (see diagram 6). If the car starts while the commit is running, the install finishes.',a:'hmi',b:'pi'}
+      {note:'If the install gate reads DRIVING, nothing installs and the verified APK stays on disk (diagram 5). If the car is started while the commit is running, the install finishes.',a:'hmi',b:'pi'}
     ]};
 
   function renderSeq(cfg,uid){
@@ -563,53 +487,58 @@ code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
   document.getElementById('aiu').innerHTML=renderSeq(AIU,'qa');
 
   /* ---------- App in use table ---------- */
-  table('drvtbl',['Stage when driving starts','1 AM automatic update','Update now'],[
-    ['Checking for updates','Not affected. A check is a small request.','Not affected.'],
-    ['Downloading','Paused, HELD (driving). Resumes from the saved offset after Park for 10 seconds.','Paused the same way. The HMI shows "Paused. Continues when you park."'],
-    ['Verifying','Finish the check (seconds), then HELD (driving).','Finish the check, then HELD (driving).'],
-    ['Ready, waiting to install','Stays HELD. Tries again in the next window.','Stays HELD until the gear has been in Park for 10 seconds, then installs.'],
-    ['Just before the commit','Read the gear one last time. Drive: HELD and nothing installs.','Same.'],
-    ['Commit running','Not interrupted. It finishes in seconds. The HMI shows the install message until it is done.','Same.']
+  table('drvtbl',['Stage when driving starts','Nightly 02:00 run','Update now'],[
+    ['Artifact check','Not affected. It is one small request.','Not affected.'],
+    ['Downloading','The watcher cancels the engine. PAUSED_DRIVING, .part and offset kept. Resumes after Park for 10 seconds.','Paused the same way. The row shows the paused state.'],
+    ['Verifying','Finishes (local file work, seconds), then the install gate decides.','Same.'],
+    ['Verified, waiting to install','Blocked at the install gate. apkPath kept, so the recheck installs without downloading again.','Same, and it installs as soon as the gear has been in Park for 10 seconds.'],
+    ['Just before the commit','The gate is re-read from a fresh snapshot. DRIVING: nothing installs.','Same.'],
+    ['Commit running','Not interrupted. It finishes in seconds.','Same.']
   ]);
   table('aiutbl',['Situation','What the user sees','What the service does'],[
-    ['Driving, any update','Update now: "Paused. Continues when you park." Nothing else.','Never downloads or installs while driving. A download in progress pauses. The update is HELD (driving).'],
-    ['Parked, the user taps Update now','"Updating Media. It will restart." for a few seconds, then "Media updated to 4.1.0".','Installs once the gear has been in Park for 10 seconds. It does not check what any app is doing.'],
-    ['Parked, and Navigation or music is running','The same message. The app stops and restarts with the new version.','Same as above. This is the accepted trade-off of using vehicle state only.'],
-    ['The car starts while an update is ready','"Downloaded. Installs when you park."','The update stays HELD (driving) until the gear has been in Park for 10 seconds.'],
-    ['The car starts during the few seconds of the install','The message stays until the install finishes, then "Media updated to 4.1.0".','Does not interrupt a running commit. It finishes safely.'],
-    ['An app has an install rule that blocks it (for example egress mode)','Update now: "Navigation installs when the vehicle leaves egress mode." Other apps update as normal.','The update stays downloaded and HELD (install_rule). It installs when the rule allows. See diagram 11.'],
-    ['The 1 AM automatic update','Nothing at night. At the next ignition-on: "Media updated to 4.1.0".','Runs only when parked and ignition off. Installs silently.'],
-    ['Another profile or passenger screen','The same messages, on every screen that shows them.','Vehicle state applies to the whole vehicle, not to a profile.'],
-    ['The install fails','The old version still works. HMI: "Could not update Media. Try again."','A failed install leaves the old version in place. See diagram 10.']
+    ['Driving, any update','A paused state on the row. Nothing else.','Never downloads or installs while driving. A download in progress pauses and keeps its bytes.'],
+    ['Parked, the user taps Update now','The row moves through its states and ends at the new version.','Runs the same pipeline as the nightly run, started by AIDL instead of the scheduler.'],
+    ['Parked, and the app being updated is in use','The app stops and restarts on the new version.','The gate reads vehicle state only. It does not ask apps what they are doing.'],
+    ['The car is driven away while an update is verified and waiting','The row stays in its waiting state.','Blocked at the install gate. The verified APK stays on disk; the recheck installs it without downloading again.'],
+    ['The car starts during the few seconds of the commit','The row finishes normally.','A running commit is never interrupted.'],
+    ['Ignition in accessory, or the car fully off','Nothing on screen.','Both states permit a download and an install: the vehicle is stationary and cannot move.'],
+    ['The nightly 02:00 run','Nothing at night. The row shows the new version afterwards.','Runs unattended. DOWNLOAD_COMPLETE closes the run whatever happened.'],
+    ['Another profile or passenger screen','The same rows on every screen that shows them.','The service runs in the system user; vehicle state applies to the whole vehicle.'],
+    ['The install fails','The old version still works and the row returns to its previous state.','A failed install leaves the old version in place. The reason goes to the log, never to the row.']
   ]);
 
   /* ---------- Rules table ---------- */
-  table('rtbl',['Condition','1 AM automatic update','Update now'],[
-    ['When','Download: any time the checks pass. Install: only in the 1 to 5 AM window (vehicle local time), starting with random jitter.','Any time the user taps Update now. The install follows the install rules.'],
-    ['Vehicle state','Driving: strictly no download and no install. Download: parked; pauses when driving starts and resumes after Park for 10 seconds. Install: parked and ignition off; pause if a door opens or the ignition turns on.','Driving: strictly no download and no install. Parked (Park for 10 seconds): download, then install. A running commit is never interrupted.'],
-    ['Network','WiFi that is validated and not metered, at least 2 Mbps. Cellular only if the Settings option "WiFi or cellular" is on; that option exists only with a connectivity subscription.','Same network rule as automatic: WiFi, or cellular when the Settings option is on and the vehicle has a subscription. No prompt at download time. Metered hotspots never; Bluetooth PAN is not a supported transport at all. Slow: continue and show an estimate. Stalled 60 s: pause and resume.'],
-    ['Public WiFi and captive portal','A captive portal counts as no network. An untrusted network is acceptable because the APK is protected by signatures and hashes.','Same. The HMI says "Connect to the internet to update."'],
-    ['Battery','HV battery at least 30% or charging, and 12V above its minimum.','Download needs at least 10%. Install needs at least 20% or a charger connected.'],
-    ['Storage','Free space at least 2x the APK size. If short and an app is already downloaded, install it first (if its rules allow) and delete its APK, then download. Otherwise HELD (low_storage).','Same. The HMI says "Not enough storage" if it is still short. See diagram 12.'],
-    ['Per-app install rules','From the signed manifest, per app. Only add limits on the install, for example not in egress mode. No rules: baseline only. See diagram 11.','Same.'],
-    ['Profile','Not tied to a profile. The service runs in the system user and updates the whole vehicle.','Primary and secondary profiles can start it. Guest can view only. The event records the profile type, not who.'],
+  table('rtbl',['Condition','Nightly 02:00 run','Update now'],[
+    ['When','daily_trigger at 02:00, re-arming itself. Blocked runs recheck every 15 minutes.','Whenever the user taps it, through startDownload over AIDL.'],
+    ['Driving','Stationary states pass: PARKED, ACCESSORY, STOPPED, TURNED_OFF. DRIVING blocks. UNKNOWN blocks, because an unread signal is not a parked car.','Same rule, same states.'],
+    ['Resuming after a block','The gate must stay open for 10 continuous seconds before the run proceeds, so a flapping signal re-blocks.','Same.'],
+    ['Battery','At least 20%, or charging at any level. Resuming after a battery block needs 20 + 5 = 25%.','Same.'],
+    ['Network','Validated unmetered WiFi, or the vehicle cellular when the Settings option is on and the vehicle has a connectivity subscription. Metered hotspots always refuse; Bluetooth PAN is not a supported transport.','Same.'],
+    ['Storage','Free space must cover the artifact plus 10%. Unknown free space never blocks.','Same.'],
+    ['Install gate','Driving and battery only. Network and storage are deliberately skipped: the APK is already on local storage and the install moves no bytes.','Same.'],
+    ['Per-app install rules','Not built. The gate is the four rules above; there is no per-app rule from the cloud.','Same.'],
+    ['Profile','Not tied to a profile. The service runs in the system user and updates the whole vehicle.','Binding needs BIND_DOWNLOAD_SERVICE, a signature|privileged permission.'],
     ['Apps','The service does not talk to individual apps or check what they are doing. Apps restart when updated and should save their own state.','Same.'],
-    ['Retries','Downloads: 15 min, 45 min, then hourly, resuming at the saved byte. Installs: the next night. After 3 failed nights the HMI shows the update.','1 min, 5 min, 15 min, resuming at the saved byte. Then stop and show Try again.'],
-    ['Messages','None at night. One line at the next ignition-on.','The HMI shows status at every step, including "Updating Media. It will restart." when the install starts.']
+    ['Retries','Download: 5 attempts, 30 s to 15 min, resuming at the saved byte. URL re-fetch: 3 per run. Verification: one retry, then stop.','Same.'],
+    ['Messages','None at night. The row shows the new version afterwards.','The row shows four fields and a three-word state; the reason stays in the log.']
   ]);
 
   /* ---------- Events table ---------- */
-  table('etbl',['Event','Sent on','Notes'],[
-    ['update_available','CHECKING to AVAILABLE','App has a newer versionCode in the verified manifest'],
-    ['download_started','AVAILABLE to DOWNLOADING','First request for the APK is sent'],
-    ['download_complete','DOWNLOADING to VERIFYING','All bytes written to the staging folder'],
-    ['download_failed','DOWNLOADING to FAILED','Reason: network, timeout, storage'],
-    ['verify_failed','VERIFYING to FAILED','Reason: size, hash, cert or versionCode'],
-    ['update_held','Any step to HELD','heldReason: driving, install_rule, vehicle_active, low_battery, poor_network, outside_window, low_storage'],
-    ['update_resumed','HELD back to the step it left','The checks passed again'],
-    ['install_started','READY to INSTALLING','Installer session committed'],
-    ['install_success','INSTALLING to INSTALLED','New versionCode confirmed by PackageManager'],
-    ['install_failed','INSTALLING to FAILED','Reason: installer status code']
+  table('etbl',['Event','Emitted when','Notes'],[
+    ['SCHEDULE_FIRED','daily_trigger fires','SCHEDULE_COALESCED if a run is already pending'],
+    ['BLOCKED_DRIVING / _BATTERY / _NETWORK / _STORAGE','A gate rule fails','First failure wins. RECHECK_STILL_BLOCKED on a repeat.'],
+    ['CHARGING_OVERRIDE','Charging below the battery threshold','The run proceeds anyway'],
+    ['UP_TO_DATE','Installed versionCode >= offered','Zero bytes moved, no URL ever fetched'],
+    ['URL_FETCHED / URL_REFRESHED','A signed URL is minted or renewed','URL_REFRESH_EXHAUSTED past 3 per run'],
+    ['DOWNLOAD_STARTED / RESUMED / DOWNLOAD_PROGRESS','The engine runs','Progress at most once a second'],
+    ['PAUSED_DRIVING / _BATTERY / _NETWORK','The watcher sees a rule fail mid-download','The .part file survives'],
+    ['RESTARTED_FROM_ZERO','The server ignored Range, or the staged APK was for another artifact','Partial bytes are discarded'],
+    ['VERIFY_FAILED','length, APK parse, SHA-256 or signer check fails','One retry, then DOWNLOAD_FAILED: verification failed twice'],
+    ['INSTALL_STARTED / INSTALL_COMPLETE','A session is committed, and the device confirms the version moved','INSTALL_NEEDS_USER_ACTION means the app is not privileged'],
+    ['OVERRIDE_STAGED / _APPLIED / _NOT_APPLIED','APK_OVERRIDE path','Decided by comparing BOOT_COUNT'],
+    ['DOWNLOAD_COMPLETE','A run ends successfully','Always closes a successful run, whatever the terminal event was'],
+    ['CANCELLED / WORK_STOPPED_BY_SYSTEM / SERVICE_DISABLED','The three abnormal endings','Kept distinguishable on purpose'],
+    ['STATE_RESTORED','A process death is recovered, or a verified APK is reused','daily_trigger stays armed through all of these']
   ],0);
 
   /* ---------- Top tabs ---------- */
